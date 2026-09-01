@@ -19,6 +19,9 @@ npm run episode -- --dry-run --minutes 2 --cycles 3
 
 # Real episode (fills in components for whichever keys are set):
 npm run episode -- --minutes 30
+
+# The self-hosted platform (viewer page + chat + episode control API):
+npm run serve
 ```
 
 Requires Node 20+ and ffmpeg on PATH.
@@ -42,4 +45,29 @@ stream shutdown); pressing it twice force-quits.
 
 Generate the filler library once with `npm run fillers` — real Tilly
 "vamping on set" clips written to `assets/fallback/` that air whenever
-generation falls behind (a placeholder card is used if the folder is empty).
+generation falls behind (a placeholder card is used if the folder is empty),
+plus cached opening/closing segments in `assets/segments/`.
+
+## The self-hosted platform
+
+`npm run serve` (or the Dockerfile, deployed on Railway) runs the internal
+show platform in one process:
+
+- **Viewer page** at `/?key=<VIEWER_TOKEN>` — live player plus team chat;
+  suggest scenes with `!prompt <idea>`. Only people with the link token can
+  watch; chat messages feed the show director directly.
+- **Producer controls in the page**: open the viewer link with
+  `&ctl=<CONTROL_TOKEN>` appended and Start/Stop buttons appear in the header
+  (minutes + optional cycle cap). Episodes default to 10 minutes; Stop ends
+  one early after the closing segment.
+- **Episode control** from the command line with `CONTROL_TOKEN`:
+
+  ```bash
+  curl -X POST https://<host>/start -H "Authorization: Bearer $CONTROL_TOKEN" \
+       -H "content-type: application/json" -d '{"minutes": 30}'
+  curl -X POST https://<host>/stop  -H "Authorization: Bearer $CONTROL_TOKEN"
+  ```
+
+  `/start` also accepts `cycles`, `dryRun`, and `"output": "rtmp"` (push to
+  `RTMP_URL` — YouTube/Twitch — instead of the built-in platform; pair it
+  with `YOUTUBE_API_KEY` + `YOUTUBE_VIDEO_ID` to read that broadcast's chat).
