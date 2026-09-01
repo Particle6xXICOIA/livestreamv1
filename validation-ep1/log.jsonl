@@ -1,0 +1,38 @@
+{"t":"2026-09-01T16:32:08.064Z","type":"episode_start","dryRun":false,"minutes":5,"rtmp":"local file"}
+{"t":"2026-09-01T16:32:10.156Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:32:10.214Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:32:16.807Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:32:23.605Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:32:29.606Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:32:36.173Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:32:36.503Z","type":"cycle_start","cycle":1,"suggestions":[{"id":"stub-1","username":"sam_dev","text":"order a coffee as a Victorian ghost","at":1788280330157},{"id":"stub-2","username":"priya","text":"audition for a shampoo advert but the shampoo is haunted","at":1788280335157},{"id":"stub-3","username":"mark","text":"teach a goldfish to parallel park","at":1788280340157},{"id":"stub-4","username":"lena_qa","text":"dramatic weather forecast for the inside of a fridge","at":1788280345158},{"id":"stub-5","username":"jo","text":"win an argument with a self-checkout machine","at":1788280350158},{"id":"stub-6","username":"sam_dev","text":"order a coffee as a Victorian ghost","at":1788280355164}]}
+{"t":"2026-09-01T16:32:36.503Z","type":"decision","cycle":1,"picked":{"id":"stub-1","username":"sam_dev","text":"order a coffee as a Victorian ghost","at":1788280330157},"riff":"Right — sam_dev wants me to order a coffee as a Victorian ghost. I have no idea how to do that, which has never once stopped me.","scenePrompt":"Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, acting out: order a coffee as a Victorian ghost. Medium shot, static camera, one clear comedic beat with a beginning and an end.","sceneSec":8,"declined":[]}
+{"t":"2026-09-01T16:32:41.605Z","type":"playing","kind":"opening","label":"opening","sec":8}
+{"t":"2026-09-01T16:32:52.872Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:32:55.606Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:33:01.608Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:33:08.078Z","type":"generated","cycle":1,"generationMs":31574}
+{"t":"2026-09-01T16:33:08.172Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:33:11.986Z","type":"cycle_start","cycle":2,"suggestions":[{"id":"stub-7","username":"priya","text":"audition for a shampoo advert but the shampoo is haunted","at":1788280360191},{"id":"stub-8","username":"mark","text":"teach a goldfish to parallel park","at":1788280365192},{"id":"stub-9","username":"lena_qa","text":"dramatic weather forecast for the inside of a fridge","at":1788280370192},{"id":"stub-10","username":"jo","text":"win an argument with a self-checkout machine","at":1788280375192},{"id":"stub-11","username":"sam_dev","text":"order a coffee as a Victorian ghost","at":1788280380192},{"id":"stub-12","username":"priya","text":"audition for a shampoo advert but the shampoo is haunted","at":1788280385193},{"id":"stub-13","username":"mark","text":"teach a goldfish to parallel park","at":1788280390194}]}
+{"t":"2026-09-01T16:33:11.986Z","type":"decision","cycle":2,"picked":{"id":"stub-7","username":"priya","text":"audition for a shampoo advert but the shampoo is haunted","at":1788280360191},"riff":"Right — priya wants me to audition for a shampoo advert but the shampoo is haunted. I have no idea how to do that, which has never once stopped me.","scenePrompt":"Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, acting out: audition for a shampoo advert but the shampoo is haunted. Medium shot, static camera, one clear comedic beat with a beginning and an end.","sceneSec":8,"declined":[]}
+{"t":"2026-09-01T16:33:13.605Z","type":"playing","kind":"host","label":"cycle-001 riff","sec":8}
+{"t":"2026-09-01T16:33:24.672Z","type":"playing","kind":"scene","label":"cycle-001 scene","sec":8}
+{"t":"2026-09-01T16:33:33.105Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:33:34.738Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:33:41.360Z","type":"generated","cycle":2,"generationMs":29374}
+{"t":"2026-09-01T16:33:41.605Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:33:45.259Z","type":"cycle_start","cycle":3,"suggestions":[{"id":"stub-14","username":"lena_qa","text":"dramatic weather forecast for the inside of a fridge","at":1788280395194},{"id":"stub-15","username":"jo","text":"win an argument with a self-checkout machine","at":1788280400194},{"id":"stub-16","username":"sam_dev","text":"order a coffee as a Victorian ghost","at":1788280405194},{"id":"stub-17","username":"priya","text":"audition for a shampoo advert but the shampoo is haunted","at":1788280410194},{"id":"stub-18","username":"mark","text":"teach a goldfish to parallel park","at":1788280415194},{"id":"stub-19","username":"lena_qa","text":"dramatic weather forecast for the inside of a fridge","at":1788280420194},{"id":"stub-20","username":"jo","text":"win an argument with a self-checkout machine","at":1788280425194}]}
+{"t":"2026-09-01T16:33:45.260Z","type":"decision","cycle":3,"picked":{"id":"stub-14","username":"lena_qa","text":"dramatic weather forecast for the inside of a fridge","at":1788280395194},"riff":"Right — lena_qa wants me to dramatic weather forecast for the inside of a fridge. I have no idea how to do that, which has never once stopped me.","scenePrompt":"Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, acting out: dramatic weather forecast for the inside of a fridge. Medium shot, static camera, one clear comedic beat with a beginning and an end.","sceneSec":8,"declined":[]}
+{"t":"2026-09-01T16:33:47.606Z","type":"playing","kind":"host","label":"cycle-002 riff","sec":8}
+{"t":"2026-09-01T16:33:59.007Z","type":"playing","kind":"scene","label":"cycle-002 scene","sec":8}
+{"t":"2026-09-01T16:34:06.960Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:34:11.605Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:34:14.807Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:34:21.605Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:34:24.285Z","type":"generated","cycle":3,"generationMs":39025}
+{"t":"2026-09-01T16:34:27.605Z","type":"playing","kind":"host","label":"cycle-003 riff","sec":8}
+{"t":"2026-09-01T16:34:38.839Z","type":"playing","kind":"scene","label":"cycle-003 scene","sec":8}
+{"t":"2026-09-01T16:34:46.705Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:34:48.435Z","type":"playing","kind":"filler","label":"thinking card","sec":6}
+{"t":"2026-09-01T16:34:57.605Z","type":"playing","kind":"closing","label":"closing","sec":8}
+{"t":"2026-09-01T16:35:07.736Z","type":"episode_end","cycles":3}
