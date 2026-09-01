@@ -61,6 +61,44 @@ two). New show: copy `shows/_template.json`. New character: 1–4 stills
 (~1024px) + 5–15s clean voice clip → fal storage URLs → then
 `npm run fillers -- --show <id>` once (~$4).
 
+The schema also supports (all optional, compiled automatically by in-app
+creation below): `cast` — extra recurring characters, each with their own
+references; the director picks who appears per scene (max 2) and that clip
+generates against their reference stills. `format.interactionRules` — what
+`!prompt` messages mean beyond scene ideas (votes, environment nudges,
+director's notes). `format.stateInstructions` + `persistState` — a compact
+state summary the director rewrites every cycle (leaderboards, story
+progress), persisted under `DATA_DIR/state/<id>.json` across streams when
+`persistState` is true. `format.hostRiffs: false` — no spoken host segments
+(e.g. an animal lead); cycles air scenes only and opening/closing are
+skipped.
+
+## Creating shows in-app
+
+Producer page → **＋ New show**: describe any livestream experience in free
+text, optionally attach reference images and a voice clip (they upload to
+fal storage), then:
+
+1. **Compile (free)** — `POST /shows/create` has Claude write the full show
+   config (cast, chat rules, state tracking, fillers…). The draft saves to
+   `DATA_DIR/shows/<id>.json`, appears in the show picker immediately, and
+   can be aired with the **dry** checkbox for a $0 preview of the loop.
+2. **Generate assets (paid, ~$2–6)** — `POST /shows/build` mints one
+   canonical reference still per character that lacks one (flux on fal),
+   seeds a reference voice for speaking characters (one short
+   reference-to-video clip → audio track extracted → fal storage), then
+   generates the filler library + cached opening/closing. Progress polls via
+   `GET /shows/build-status?id=`; failed builds save their error and retry
+   from where they left off. `POST /shows/delete` removes a created show.
+
+Created shows never fall back to the env-level Tilly references — missing
+references generate prompt-only rather than borrowing her likeness.
+
+**Durability**: created shows, their assets, and persistent state live under
+`DATA_DIR` (default `data/`, gitignored). The container filesystem is wiped
+on every redeploy, so attach a Railway volume to `tilly-platform` (mount at
+`/data`) and set `DATA_DIR=/data` to keep created shows across deploys.
+
 ## Secrets & env
 
 `FAL_KEY`, `ANTHROPIC_API_KEY`, `CONTROL_TOKEN`, `VIEWER_TOKEN`,
@@ -102,6 +140,12 @@ the container — **ephemeral, lost on redeploy**; export anything worth keeping
   addition.
 - Generate filler libraries for `tilly-agony-aunt` and `tilly-interviews`;
   add the first non-Tilly character.
+- In-app creation: the flux reference-still endpoint (`fal-ai/flux/dev`) has
+  not been exercised end-to-end yet (fal balance was exhausted at build
+  time) — the first real asset build verifies it; a failure lands in the
+  build log and the build is retryable.
+- Attach the Railway volume for `DATA_DIR` (see "Creating shows in-app") —
+  until then created shows vanish on redeploy.
 
 ## Working on this with Claude
 

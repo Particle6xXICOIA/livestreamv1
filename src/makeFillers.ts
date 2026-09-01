@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { getShow, showAssetDirs } from "./shows.js";
 import { StubGenerator } from "./generation/stubGenerator.js";
 import { FalH3MaxGenerator } from "./generation/falGenerator.js";
+import { envFallbackRefs } from "./components.js";
 
 /**
  * One-off per show: generate its filler library and cached opening/closing
@@ -23,12 +24,7 @@ const count = Math.min(
 );
 
 const generator = config.falKey
-  ? new FalH3MaxGenerator(
-      config.falKey,
-      show,
-      { imageUrls: config.tillyReferenceImageUrls, audioUrl: config.tillyReferenceAudioUrl },
-      config.video,
-    )
+  ? new FalH3MaxGenerator(config.falKey, show, envFallbackRefs(config, show), config.video)
   : (console.warn("[fillers] FAL_KEY not set — generating placeholder cards"),
     new StubGenerator(config.video));
 
@@ -46,6 +42,10 @@ for (const [tag, riff] of [
   ["opening", show.format.openingRiff],
   ["closing", show.format.closingRiff],
 ] as const) {
+  if (!riff?.trim()) {
+    console.log(`[fillers] ${show.id}: no ${tag} riff (riff-less show) — skipping`);
+    continue;
+  }
   if (fs.existsSync(`${dirs.segments}/${tag}-host.mp4`)) {
     console.log(`[fillers] ${show.id}: ${tag} segment already exists — skipping`);
     continue;

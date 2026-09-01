@@ -5,16 +5,20 @@ export interface Suggestion {
   at: number; // epoch ms
 }
 
-/** What the show director decides for one cycle of the improv loop. */
+/** What the show director decides for one cycle of the loop. */
 export interface CycleDecision {
   /** The chat suggestion being played, or null when the director invented one. */
   suggestion: Suggestion | null;
-  /** Tilly's spoken host riff introducing the scene (this is her dialogue, verbatim). */
+  /** The host's spoken riff introducing the scene — empty string on shows with no host segments. */
   hostRiff: string;
   /** Full generation prompt for the acted-out scene. */
   scenePrompt: string;
   /** 5-15 seconds. */
   sceneDurationSec: number;
+  /** Names of cast-roster members appearing in the scene (empty when the show has no cast). */
+  castNames: string[];
+  /** The rewritten show state after this cycle, or null on shows that track none. */
+  updatedState: string | null;
   /** Suggestions the director declined on safety grounds this cycle (logged, never aired). */
   declined: { username: string; text: string; reason: string }[];
 }
@@ -42,6 +46,8 @@ export interface Director {
     /** Labels of recent cycles, so the director avoids repeating itself. */
     recentCycles: string[];
     cycleNumber: number;
+    /** Running show state (scores, story progress) — null on stateless shows. */
+    showState: string | null;
   }): Promise<CycleDecision>;
 }
 
@@ -51,9 +57,26 @@ export interface RawClip {
   durationSec: number;
 }
 
+/**
+ * Per-clip reference override for multi-character scenes: which reference
+ * images/audio condition this generation, and the preamble that binds them
+ * to named characters. Empty imageUrls means "generate prompt-only".
+ */
+export interface SceneRefs {
+  preamble: string;
+  imageUrls: string[];
+  audioUrl: string | null;
+}
+
 export interface ClipGenerator {
-  /** Tilly in host mode, speaking the riff to camera. */
+  /** The host speaking the riff to camera, using the show's default references. */
   generateHostClip(riff: string, workDir: string, tag: string): Promise<RawClip>;
-  /** Tilly acting out the scene. */
-  generateSceneClip(prompt: string, durationSec: number, workDir: string, tag: string): Promise<RawClip>;
+  /** An acted-out scene; refs (when given) override the show-level references. */
+  generateSceneClip(
+    prompt: string,
+    durationSec: number,
+    workDir: string,
+    tag: string,
+    refs?: SceneRefs | null,
+  ): Promise<RawClip>;
 }

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { ClipGenerator, RawClip } from "../types.js";
+import { ClipGenerator, RawClip, SceneRefs } from "../types.js";
 import { Config } from "../config.js";
 import { ShowConfig, hostClipPrompt } from "../shows.js";
 
@@ -15,9 +15,10 @@ import { ShowConfig, hostClipPrompt } from "../shows.js";
  *   reference_image_urls + reference_audio_urls ($0.08/s of video)
  * - minimax/h3-max/text-to-video — no references ($0.04/s at 768P, promo rate)
  *
- * When Tilly reference images are configured we use reference-to-video for
- * every clip (likeness + voice held by the references); otherwise we fall
- * back to text-to-video and rely on the prompt's visual anchors alone.
+ * Show-level references (the lead's likeness + voice) condition every clip by
+ * default; multi-character scenes pass per-clip SceneRefs instead, binding
+ * each cast member's reference still by name. With no references at all we
+ * fall back to text-to-video and rely on the prompt's visual anchors alone.
  */
 export class FalH3MaxGenerator implements ClipGenerator {
   private referenceImageUrls: string[];
@@ -39,40 +40,37 @@ export class FalH3MaxGenerator implements ClipGenerator {
     this.referenceAudioUrl = show.character.referenceAudioUrl ?? fallbackRefs.audioUrl;
   }
 
-  private get useReferences(): boolean {
-    return !this.testQuality && this.referenceImageUrls.length > 0;
-  }
-
-  private referencePreamble(): string {
+  private showLevelRefs(): SceneRefs {
     const imgs = this.referenceImageUrls
       .map((_, i) => `Image ${i + 1}`)
       .join(" and ");
-    let p = `The person shown in ${imgs} is ${this.show.character.name}. `;
+    let preamble = `The person shown in ${imgs} is ${this.show.character.name}. `;
     if (this.referenceAudioUrl) {
-      p += `${this.show.character.name}'s voice is the voice in Audio 1. `;
+      preamble += `${this.show.character.name}'s voice is the voice in Audio 1. `;
     }
-    return p;
+    return { preamble, imageUrls: this.referenceImageUrls, audioUrl: this.referenceAudioUrl };
   }
 
   private async generate(
     prompt: string,
     durationSec: number,
     outPath: string,
+    refsOverride?: SceneRefs | null,
   ): Promise<RawClip> {
     const duration = Math.min(15, Math.max(5, Math.round(durationSec)));
+    const refs = refsOverride ?? this.showLevelRefs();
+    const useReferences = !this.testQuality && refs.imageUrls.length > 0;
     let result: { data: { video: { url: string } } };
-    if (this.useReferences) {
+    if (useReferences) {
       result = (await fal.subscribe("minimax/h3-max/reference-to-video", {
         input: {
-          prompt: this.referencePreamble() + prompt,
+          prompt: refs.preamble + prompt,
           prompt_expansion_mode: "balanced",
           duration,
           resolution: "768P",
           aspect_ratio: "16:9",
-          reference_image_urls: this.referenceImageUrls,
-          ...(this.referenceAudioUrl
-            ? { reference_audio_urls: [this.referenceAudioUrl] }
-            : {}),
+          reference_image_urls: refs.imageUrls,
+          ...(refs.audioUrl ? { reference_audio_urls: [refs.audioUrl] } : {}),
         },
       })) as { data: { video: { url: string } } };
     } else {
@@ -104,8 +102,9 @@ export class FalH3MaxGenerator implements ClipGenerator {
     durationSec: number,
     workDir: string,
     tag: string,
+    refs?: SceneRefs | null,
   ): Promise<RawClip> {
-    return this.generate(prompt, durationSec, path.join(workDir, `${tag}-scene.mp4`));
+    return this.generate(prompt, durationSec, path.join(workDir, `${tag}-scene.mp4`), refs);
   }
 }
 
