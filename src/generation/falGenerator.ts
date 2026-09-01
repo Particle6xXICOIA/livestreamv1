@@ -90,7 +90,11 @@ export class FalH3MaxGenerator implements ClipGenerator {
   }
 
   async generateHostClip(riff: string, workDir: string, tag: string): Promise<RawClip> {
-    return this.generate(hostClipPrompt(this.show, riff), 8, path.join(workDir, `${tag}-host.mp4`));
+    // Size the clip to the line: cramming a long riff into a fixed 8s makes
+    // the model rush and garble the speech (~2.3 words/sec + breathing room).
+    const words = riff.trim().split(/\s+/).length;
+    const duration = Math.min(15, Math.max(6, Math.ceil(words / 2.3) + 2));
+    return this.generate(hostClipPrompt(this.show, riff), duration, path.join(workDir, `${tag}-host.mp4`));
   }
 
   async generateSceneClip(

@@ -116,6 +116,14 @@ const server = http.createServer(async (req, res) => {
       }
       const { chat, director, generator } = buildComponents(config, show, webChat);
       runner = new EpisodeRunner(config, show, chat, director, generator);
+      runner.onDecision = (decision) => {
+        broadcast({
+          type: "system",
+          text: decision.suggestion
+            ? `🎬 Staging ${decision.suggestion.username}'s suggestion: "${decision.suggestion.text}" — on screen in a minute or so.`
+            : `🎬 The director invented this scene — keep the !prompt suggestions coming!`,
+        });
+      };
       running = true;
       currentShowTitle = show.title;
       broadcast(statusPayload());
@@ -207,7 +215,16 @@ server.on("upgrade", (req, socket, head) => {
       broadcast({ type: "chat", name, text, at: Date.now() });
       if (text.toLowerCase().startsWith("!prompt ")) {
         const suggestion = text.slice("!prompt ".length).trim();
-        if (suggestion && running) webChat.push(name, suggestion);
+        if (!suggestion) return;
+        if (running) {
+          webChat.push(name, suggestion);
+          broadcast({
+            type: "system",
+            text: `🦩 Suggestion received: "${suggestion}" (${name}) — the director sees it at the next cycle.`,
+          });
+        } else {
+          broadcast({ type: "system", text: `🦩 No episode is live right now — suggestions land when the show is on.` });
+        }
       }
     });
   });
