@@ -1,0 +1,35 @@
+{
+  "name": "tilly-live",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "episode": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Particle6xXICOIA/livestreamv1.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Particle6xXICOIA/livestreamv1/issues"
+  },
+  "homepage": "https://github.com/Particle6xXICOIA/livestreamv1#readme",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "@fal-ai/client": "^1.10.1",
+    "tmi.js": "^1.8.5",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/tmi.js": "^1.8.6",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

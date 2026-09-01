@@ -1,0 +1,102 @@
+import { spawn } from "node:child_process";
+import path from "node:path";
+import fs from "node:fs";
+import { Config } from "../config.js";
+
+export function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("error", reject);
+    proc.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-2000)}`)),
+    );
+  });
+}
+
+/**
+ * Transcode any input clip to the playout format: MPEG-TS with uniform
+ * codec/resolution/fps/audio, so clips can be byte-concatenated into the
+ * RTMP pipe without renegotiation.
+ */
+export async function normalizeToTs(inputPath: string, video: Config["video"]): Promise<string> {
+  const tsPath = inputPath.replace(/\.[^.]+$/, "") + ".ts";
+  // Some generated clips have no audio track; inject silence for those so the
+  // TS stream always carries exactly one audio elementary stream.
+  const hasAudio = await probeHasAudio(inputPath);
+  const args = ["-i", inputPath];
+  if (!hasAudio) args.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo");
+  args.push(
+    "-map", "0:v:0", "-map", hasAudio ? "0:a:0" : "1:a:0",
+    ...(hasAudio ? [] : ["-shortest"]),
+    "-vf", `scale=${video.width}:${video.height}:force_original_aspect_ratio=decrease,` +
+      `pad=${video.width}:${video.height}:(ow-iw)/2:(oh-ih)/2,fps=${video.fps},format=yuv420p`,
+    "-c:v", "libx264", "-preset", "veryfast", "-b:v", `${video.vBitrateK}k`,
+    "-x264-params", `keyint=${video.fps * 2}:min-keyint=${video.fps * 2}`,
+    "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "128k",
+    "-f", "mpegts", tsPath,
+  );
+  await runFfmpeg(args);
+  return tsPath;
+}
+
+function probeHasAudio(inputPath: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error", "-select_streams", "a",
+      "-show_entries", "stream=codec_type", "-of", "csv=p=0", inputPath,
+    ]);
+    let out = "";
+    proc.stdout.on("data", (d) => (out += d.toString()));
+    proc.on("error", reject);
+    proc.on("close", () => resolve(out.trim().length > 0));
+  });
+}
+
+/**
+ * Render a placeholder clip (title card style) — used by the stub generator
+ * and as a last-resort filler when no pre-generated filler clips exist.
+ */
+export async function renderCardClip(opts: {
+  text: string;
+  durationSec: number;
+  outPath: string;
+  video: Config["video"];
+  background?: string;
+}): Promise<void> {
+  const { text, durationSec, outPath, video } = opts;
+  const textFile = path.join(path.dirname(outPath), path.basename(outPath) + ".txt");
+  // drawtext has hostile escaping rules; a textfile sidesteps them entirely.
+  fs.writeFileSync(textFile, wrapText(text, 48));
+  await runFfmpeg([
+    "-f", "lavfi", "-i",
+    `color=c=${opts.background ?? "0x1a1a2e"}:s=${video.width}x${video.height}:r=${video.fps}:d=${durationSec}`,
+    "-f", "lavfi", "-i", `anullsrc=r=44100:cl=stereo:d=${durationSec}`,
+    "-vf",
+    `drawtext=textfile='${textFile}':fontcolor=white:fontsize=36:` +
+      `x=(w-text_w)/2:y=(h-text_h)/2:line_spacing=12:` +
+      `fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`,
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-shortest", outPath,
+  ]);
+  fs.unlinkSync(textFile);
+}
+
+function wrapText(text: string, width: number): string {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if ((line + " " + w).trim().length > width) {
+      lines.push(line.trim());
+      line = w;
+    } else {
+      line += " " + w;
+    }
+  }
+  if (line.trim()) lines.push(line.trim());
+  return lines.join("\n");
+}
