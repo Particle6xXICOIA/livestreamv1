@@ -5,10 +5,7 @@ import { Config } from "../config.js";
 import { Playout } from "../playout/playout.js";
 import { EpisodeArchive } from "./archive.js";
 import { normalizeToTs, probeDurationSec, renderCardClip } from "../generation/ffmpeg.js";
-import { OPENING_RIFF, CLOSING_RIFF } from "../persona.js";
-
-/** Pre-generated fixed segments (created by `npm run fillers`) live here. */
-const SEGMENTS_DIR = "assets/segments";
+import { ShowConfig, showAssetDirs } from "../shows.js";
 
 export class EpisodeRunner {
   private playout: Playout;
@@ -17,6 +14,7 @@ export class EpisodeRunner {
 
   constructor(
     private config: Config,
+    private show: ShowConfig,
     private chat: ChatSource,
     private director: Director,
     private generator: ClipGenerator,
@@ -36,6 +34,7 @@ export class EpisodeRunner {
   async run(): Promise<void> {
     const { config } = this;
     this.archive.log("episode_start", {
+      show: this.show.id,
       dryRun: config.dryRun,
       minutes: config.episodeMinutes,
       output: config.hlsDir ? "hls" : config.rtmpUrl ? "rtmp" : "local file",
@@ -47,7 +46,8 @@ export class EpisodeRunner {
     // The stream does not go live until the opening AND the first cycle are
     // buffered (see releaseReady below) — so it opens on content, not filler.
     await this.enqueueGenerated("opening", () =>
-      this.cachedSegment("opening") ?? this.generator.generateHostClip(OPENING_RIFF, this.archive.clipsDir, "opening"),
+      this.cachedSegment("opening") ??
+      this.generator.generateHostClip(this.show.format.openingRiff, this.archive.clipsDir, "opening"),
     );
 
     const endAt = Date.now() + config.episodeMinutes * 60_000;
@@ -157,7 +157,8 @@ export class EpisodeRunner {
     }
 
     await this.enqueueGenerated("closing", () =>
-      this.cachedSegment("closing") ?? this.generator.generateHostClip(CLOSING_RIFF, this.archive.clipsDir, "closing"),
+      this.cachedSegment("closing") ??
+      this.generator.generateHostClip(this.show.format.closingRiff, this.archive.clipsDir, "closing"),
     );
     // Degenerate episode (zero cycles aired): still go live to play what exists.
     if (!live) this.playout.start();
@@ -185,9 +186,9 @@ export class EpisodeRunner {
     }
   }
 
-  /** Returns the pre-generated segment clip when the library has it, else null. */
+  /** Returns the pre-generated segment clip when the show's library has it, else null. */
   private cachedSegment(kind: "opening" | "closing"): Promise<{ mp4Path: string; durationSec: number }> | null {
-    const mp4Path = path.join(SEGMENTS_DIR, `${kind}-host.mp4`);
+    const mp4Path = path.join(showAssetDirs(this.show).segments, `${kind}-host.mp4`);
     return fs.existsSync(mp4Path) ? Promise.resolve({ mp4Path, durationSec: 0 }) : null;
   }
 
@@ -203,7 +204,7 @@ export class EpisodeRunner {
    */
   private async makeFillers(): Promise<Clip[]> {
     const fillers: Clip[] = [];
-    const fallbackDir = "assets/fallback";
+    const fallbackDir = showAssetDirs(this.show).fallback;
     if (fs.existsSync(fallbackDir)) {
       for (const f of fs.readdirSync(fallbackDir).filter((f) => f.endsWith(".mp4"))) {
         fillers.push(await this.toClip(path.join(fallbackDir, f), 0, "filler", `fallback ${f}`));
@@ -212,7 +213,7 @@ export class EpisodeRunner {
     if (fillers.length === 0) {
       const cardPath = path.join(this.archive.clipsDir, "filler-card.mp4");
       await renderCardClip({
-        text: "TILLY LEARNS IMPROV\n\nTilly is thinking. This takes longer when you're made of math.\n\nType your suggestion in chat.",
+        text: `${this.show.title.toUpperCase()}\n\n${this.show.character.name} is thinking.\n\nType your suggestion in chat.`,
         durationSec: 6,
         outPath: cardPath,
         video: this.config.video,

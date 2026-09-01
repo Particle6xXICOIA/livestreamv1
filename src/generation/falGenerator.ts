@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ClipGenerator, RawClip } from "../types.js";
 import { Config } from "../config.js";
-import { hostClipPrompt } from "../persona.js";
+import { ShowConfig, hostClipPrompt } from "../shows.js";
 
 /**
  * Real generator backed by MiniMax H3 Max on fal.
@@ -20,13 +20,21 @@ import { hostClipPrompt } from "../persona.js";
  * back to text-to-video and rely on the prompt's visual anchors alone.
  */
 export class FalH3MaxGenerator implements ClipGenerator {
+  private referenceImageUrls: string[];
+  private referenceAudioUrl: string | null;
+
   constructor(
     falKey: string,
-    private referenceImageUrls: string[],
-    private referenceAudioUrl: string | null,
+    private show: ShowConfig,
+    fallbackRefs: { imageUrls: string[]; audioUrl: string | null },
     private _video: Config["video"],
   ) {
     fal.config({ credentials: falKey });
+    // Show-level references win; env-level references are the fallback.
+    this.referenceImageUrls = show.character.referenceImageUrls?.length
+      ? show.character.referenceImageUrls
+      : fallbackRefs.imageUrls;
+    this.referenceAudioUrl = show.character.referenceAudioUrl ?? fallbackRefs.audioUrl;
   }
 
   private get useReferences(): boolean {
@@ -37,8 +45,10 @@ export class FalH3MaxGenerator implements ClipGenerator {
     const imgs = this.referenceImageUrls
       .map((_, i) => `Image ${i + 1}`)
       .join(" and ");
-    let p = `The woman shown in ${imgs} is Tilly. `;
-    if (this.referenceAudioUrl) p += `Her voice is the voice in Audio 1. `;
+    let p = `The person shown in ${imgs} is ${this.show.character.name}. `;
+    if (this.referenceAudioUrl) {
+      p += `${this.show.character.name}'s voice is the voice in Audio 1. `;
+    }
     return p;
   }
 
@@ -80,7 +90,7 @@ export class FalH3MaxGenerator implements ClipGenerator {
   }
 
   async generateHostClip(riff: string, workDir: string, tag: string): Promise<RawClip> {
-    return this.generate(hostClipPrompt(riff), 8, path.join(workDir, `${tag}-host.mp4`));
+    return this.generate(hostClipPrompt(this.show, riff), 8, path.join(workDir, `${tag}-host.mp4`));
   }
 
   async generateSceneClip(

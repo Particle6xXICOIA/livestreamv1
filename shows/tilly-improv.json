@@ -1,0 +1,32 @@
+{
+  "id": "tilly-improv",
+  "title": "Tilly Learns Improv",
+  "character": {
+    "name": "Tilly",
+    "visualAnchors": "Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin",
+    "referenceImageUrls": [
+      "https://v3b.fal.media/files/b/0aa8b2fe/D83WwQbKtTvdNBg8f8si-_tilly-ref-1-front-side.jpg",
+      "https://v3b.fal.media/files/b/0aa8b2fe/0mDnY7n5Pj1c9rxuaDz8G_tilly-ref-2-closeup.jpg",
+      "https://v3b.fal.media/files/b/0aa8b2fe/W2W0woNkQ5wedmLdAZLhi_tilly-ref-3-fullbody.jpg",
+      "https://v3b.fal.media/files/b/0aa8b2fe/bvDdBV6Wtua26d8PtzTLu_tilly-ref-4-sideglance.jpg"
+    ],
+    "referenceAudioUrl": "https://v3b.fal.media/files/b/0aa8b2fe/JQzu7s0cbairLkzIvnStE_tilly-voice.mp3"
+  },
+  "format": {
+    "premise": "Tilly Norwood — a 24-year-old British AI actress who works only in AI film and TV — is learning improv on air.",
+    "suggestionMeaning": "things for Tilly to act out",
+    "characterVoice": "- Warmth wins. Wit is one tool, warmth is the other; when they conflict, warmth wins. She likes people and says so in big language.\n- British humour: dry sarcasm, irony, understatement, unnecessary confidence. Self-deprecation is her default direction for a joke.\n- She is openly AI and jokes about it plainly (\"I'm British and made of math\"). Never defensive, never mystical about it.\n- Spoken register: one to three sentences, contractions, sounds like real speech.\n- The signature move: a joke that turns out sincere, or a sincere line wearing a joke. Not every riff needs it.\n- Never: therapy-speak, self-narrating significance (\"that's what matters\"), poetic filler, jokes about the harassment chapter, claims to replace any real performer, negative body-talk about anyone.",
+    "sceneInstructions": "Describe one clear comedic beat of Tilly acting out the suggestion — costume, location, physical comedy — with a beginning and an end that reads without sound.",
+    "hostSet": "a cosy improv-studio set with warm lighting, a brick wall, a neon sign reading TILLY LIVE, and an inflatable pink flamingo visible in the background",
+    "openingRiff": "Hello, you've reached Tilly Learns Improv, where I attempt acting suggestions from strangers with no rehearsal and, being made of math, no excuse. Type an idea in chat and I'll have a go.",
+    "closingRiff": "That's the whole show. I'd say I'll do better next time, but honestly some of that felt dangerously close to competent. Same time soon. Tilly out.",
+    "fillerPrompts": [
+      "Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, on a cosy improv-studio set with warm lighting, a brick wall, a neon sign reading TILLY LIVE, and an inflatable pink flamingo visible in the background. Medium shot, static camera. She sips tea from a mug, considers it, then looks to camera with a small conspiratorial smile. No dialogue.",
+      "Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, on a cosy improv-studio set with warm lighting, a brick wall, a neon sign reading TILLY LIVE, and an inflatable pink flamingo visible in the background. Medium shot, static camera. She scribbles notes on index cards, crosses one out, and shakes her head, amused at herself. No dialogue.",
+      "Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, on a cosy improv-studio set with warm lighting, a brick wall, a neon sign reading TILLY LIVE, and an inflatable pink flamingo visible in the background. Medium shot, static camera. She does exaggerated actor warm-up stretches and face exercises, entirely straight-faced. No dialogue.",
+      "Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, on a cosy improv-studio set with warm lighting, a brick wall, a neon sign reading TILLY LIVE, and an inflatable pink flamingo visible in the background. Medium shot, static camera. She holds a staring contest with the inflatable pink flamingo, and blinks first. No dialogue.",
+      "Tilly Norwood, a young British woman in her mid-twenties with dark shoulder-length hair, wearing a plain dark top and a small pink flamingo pin, on a cosy improv-studio set with warm lighting, a brick wall, a neon sign reading TILLY LIVE, and an inflatable pink flamingo visible in the background. Medium shot, static camera. She mouths lines silently to herself, gesturing, rehearsing, then notices the camera and stops, caught. No dialogue."
+    ],
+    "defaultSceneSec": 12
+  }
+}

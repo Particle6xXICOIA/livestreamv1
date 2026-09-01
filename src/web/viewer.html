@@ -29,6 +29,7 @@
   .hint { padding: 0 12px 10px; color: #8f88a8; font-size: 12px; }
   #producer { display: none; align-items: center; gap: 8px; margin-left: auto; font-size: 13px; }
   #producer input { width: 56px; padding: 4px 6px; }
+  #producer select { background: #1e1a2e; color: inherit; border: 1px solid #3a3554; border-radius: 6px; padding: 5px 6px; font: inherit; max-width: 170px; }
   #producer .ghost { background: #3a3554; }
   #producer #status { color: #8f88a8; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (max-width: 720px) { main { flex-direction: column; } aside { width: 100%; height: 45%; border-left: 0; border-top: 1px solid #2b2740; } }
@@ -37,9 +38,10 @@
 <body>
 <header>
   <span class="flamingo">🦩</span>
-  <h1>Tilly Learns Improv</h1>
+  <h1 id="showTitle">Tilly Live</h1>
   <span id="live">offline</span>
   <div id="producer">
+    <select id="showSelect"></select>
     <label>min <input id="minutes" type="number" min="1" max="60" value="10"></label>
     <label>cycles <input id="cycles" type="number" min="1" max="99" placeholder="∞"></label>
     <button id="startBtn">Start episode</button>
@@ -129,6 +131,7 @@
       if (msg.type === "status") {
         liveBadge.textContent = msg.live ? "LIVE" : "offline";
         liveBadge.classList.toggle("on", msg.live);
+        if (msg.showTitle) document.getElementById("showTitle").textContent = msg.showTitle;
         if (msg.live) {
           offline.innerHTML = "Tilly is warming up — the first scene takes about a minute to generate.<br>The show starts here automatically.";
           waitForStream();
@@ -151,6 +154,18 @@
     const panel = document.getElementById("producer");
     const status = document.getElementById("status");
     panel.style.display = "flex";
+    fetch(`/shows?key=${encodeURIComponent(key)}`)
+      .then(r => r.json())
+      .then(({ shows }) => {
+        const sel = document.getElementById("showSelect");
+        for (const s of shows) {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          opt.textContent = s.title;
+          sel.appendChild(opt);
+        }
+      })
+      .catch(() => {});
     const call = async (path, body) => {
       status.textContent = "…";
       try {
@@ -166,7 +181,8 @@
     document.getElementById("startBtn").addEventListener("click", async () => {
       const minutes = Number(document.getElementById("minutes").value) || 10;
       const cycles = Number(document.getElementById("cycles").value) || undefined;
-      await call("/start", { minutes, ...(cycles ? { cycles } : {}) });
+      const show = document.getElementById("showSelect").value || undefined;
+      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}) });
       status.textContent = "episode starting — video appears in ~1 minute";
     });
     document.getElementById("stopBtn").addEventListener("click", () => {

@@ -1,10 +1,12 @@
 import { loadConfig } from "./config.js";
+import { getShow } from "./shows.js";
 import { buildComponents } from "./components.js";
 import { EpisodeRunner } from "./episode/runner.js";
 
 const config = loadConfig(process.argv.slice(2));
-const { chat, director, generator } = buildComponents(config);
-const runner = new EpisodeRunner(config, chat, director, generator);
+const show = getShow(config.show);
+const { chat, director, generator } = buildComponents(config, show);
+const runner = new EpisodeRunner(config, show, chat, director, generator);
 
 process.on("SIGINT", () => {
   console.log("\nSIGINT — ending episode…");

@@ -1,54 +1,57 @@
 import fs from "node:fs";
 import { loadConfig } from "./config.js";
-import { FILLER_PROMPTS, OPENING_RIFF, CLOSING_RIFF } from "./persona.js";
+import { getShow, showAssetDirs } from "./shows.js";
 import { StubGenerator } from "./generation/stubGenerator.js";
 import { FalH3MaxGenerator } from "./generation/falGenerator.js";
 
 /**
- * One-off: generate the filler library into assets/fallback/. Episodes pick
- * these up automatically, so gaps in generation air as Tilly vamping on set
- * instead of a title card. Run once per look change:
+ * One-off per show: generate its filler library and cached opening/closing
+ * segments. Episodes pick these up automatically, so generation gaps air as
+ * the character vamping on set instead of a title card, and the stream opens
+ * instantly on the cached opening. Run once per show (or look change):
  *
- *   npm run fillers            # all 5 prompts (~$5 with references)
- *   npm run fillers -- --count 2
+ *   npm run fillers -- --show tilly-improv
+ *   npm run fillers -- --show tilly-improv --count 2
  */
 const config = loadConfig(process.argv.slice(2));
+const show = getShow(config.show);
+const dirs = showAssetDirs(show);
+const prompts = show.format.fillerPrompts;
 const count = Math.min(
-  FILLER_PROMPTS.length,
-  Number(process.argv.includes("--count") ? process.argv[process.argv.indexOf("--count") + 1] : FILLER_PROMPTS.length),
+  prompts.length,
+  Number(process.argv.includes("--count") ? process.argv[process.argv.indexOf("--count") + 1] : prompts.length),
 );
 
 const generator = config.falKey
   ? new FalH3MaxGenerator(
       config.falKey,
-      config.tillyReferenceImageUrls,
-      config.tillyReferenceAudioUrl,
+      show,
+      { imageUrls: config.tillyReferenceImageUrls, audioUrl: config.tillyReferenceAudioUrl },
       config.video,
     )
   : (console.warn("[fillers] FAL_KEY not set — generating placeholder cards"),
     new StubGenerator(config.video));
 
-const outDir = "assets/fallback";
-fs.mkdirSync(outDir, { recursive: true });
-
+fs.mkdirSync(dirs.fallback, { recursive: true });
 for (let i = 0; i < count; i++) {
   const tag = `filler-${String(i + 1).padStart(2, "0")}`;
-  console.log(`[fillers] generating ${tag}…`);
-  const clip = await generator.generateSceneClip(FILLER_PROMPTS[i], 8, outDir, tag);
+  console.log(`[fillers] ${show.id}: generating ${tag}…`);
+  const clip = await generator.generateSceneClip(prompts[i], 8, dirs.fallback, tag);
   console.log(`[fillers] wrote ${clip.mp4Path} (${clip.durationSec}s)`);
 }
 
-// Fixed opening/closing segments: generated once here, reused by every
-// episode so the stream opens on content instead of rendering the opener live.
-const segmentsDir = "assets/segments";
-fs.mkdirSync(segmentsDir, { recursive: true });
-for (const [tag, riff] of [["opening", OPENING_RIFF], ["closing", CLOSING_RIFF]] as const) {
-  if (fs.existsSync(`${segmentsDir}/${tag}-host.mp4`)) {
-    console.log(`[fillers] ${tag} segment already exists — skipping`);
+// Fixed opening/closing segments, reused by every episode of this show.
+fs.mkdirSync(dirs.segments, { recursive: true });
+for (const [tag, riff] of [
+  ["opening", show.format.openingRiff],
+  ["closing", show.format.closingRiff],
+] as const) {
+  if (fs.existsSync(`${dirs.segments}/${tag}-host.mp4`)) {
+    console.log(`[fillers] ${show.id}: ${tag} segment already exists — skipping`);
     continue;
   }
-  console.log(`[fillers] generating ${tag} segment…`);
-  const clip = await generator.generateHostClip(riff, segmentsDir, tag);
+  console.log(`[fillers] ${show.id}: generating ${tag} segment…`);
+  const clip = await generator.generateHostClip(riff, dirs.segments, tag);
   console.log(`[fillers] wrote ${clip.mp4Path}`);
 }
-console.log(`[fillers] done — ${count} filler clip(s) in ${outDir}/, segments in ${segmentsDir}/`);
+console.log(`[fillers] done — ${show.id}: ${count} filler clip(s) + segments`);
