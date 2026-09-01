@@ -192,9 +192,12 @@ export class EpisodeRunner {
     return fs.existsSync(mp4Path) ? Promise.resolve({ mp4Path, durationSec: 0 }) : null;
   }
 
-  private async toClip(mp4Path: string, durationSec: number, kind: Clip["kind"], label: string): Promise<Clip> {
-    if (durationSec <= 0) durationSec = await probeDurationSec(mp4Path);
-    return { tsPath: await normalizeToTs(mp4Path, this.config.video), durationSec, kind, label };
+  private async toClip(mp4Path: string, _durationSec: number, kind: Clip["kind"], label: string): Promise<Clip> {
+    const tsPath = await normalizeToTs(mp4Path, this.config.video);
+    // Exact duration of the normalized output — playout uses it as the
+    // running timestamp offset, so it must match the actual media.
+    const durationSec = await probeDurationSec(tsPath);
+    return { tsPath, durationSec, kind, label };
   }
 
   /**

@@ -158,6 +158,11 @@ const server = http.createServer(async (req, res) => {
     return res.end(fs.readFileSync(path.join(here, "web/viewer.html")));
   }
 
+  if (req.method === "GET" && url.pathname === "/hls.js") {
+    res.writeHead(200, { "content-type": "text/javascript", "cache-control": "public, max-age=86400" });
+    return res.end(fs.readFileSync(path.join(here, "web/vendor/hls.min.js")));
+  }
+
   if (req.method === "GET" && url.pathname === "/shows") {
     return send(200, {
       shows: [...loadShows().values()].map((s) => ({ id: s.id, title: s.title })),
