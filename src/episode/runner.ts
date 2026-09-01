@@ -4,9 +4,11 @@ import { ChatSource, Clip, ClipGenerator, CycleDecision, Director } from "../typ
 import { Config } from "../config.js";
 import { Playout } from "../playout/playout.js";
 import { EpisodeArchive, pruneEpisodes } from "./archive.js";
+import { SpendMeter, USD_PER_SEC_FULL, USD_PER_SEC_TEST } from "../generation/spend.js";
 import { normalizeToTs, probeDurationSec, renderCardClip, runFfmpeg } from "../generation/ffmpeg.js";
 import {
   ShowConfig,
+  hasHostRiffs,
   loadShowState,
   saveShowState,
   sceneRefsForCast,
@@ -26,6 +28,8 @@ export class EpisodeRunner {
     private chat: ChatSource,
     private director: Director,
     private generator: ClipGenerator,
+    /** Estimated-spend meter the generator charges; gates new cycles at the budget. */
+    private spend?: SpendMeter,
   ) {
     this.archive = new EpisodeArchive(config.outDir);
     this.playout = new Playout(
@@ -37,6 +41,11 @@ export class EpisodeRunner {
 
   requestStop(): void {
     this.stopRequested = true;
+  }
+
+  /** Estimated generation spend so far (0 on dry runs). */
+  get spentUsd(): number {
+    return round2(this.spend?.spentUsd ?? 0);
   }
 
   async run(): Promise<void> {
@@ -99,7 +108,21 @@ export class EpisodeRunner {
       this.playout.queuedSeconds +
       [...completed.values()].flat().reduce((s, c) => s + c.durationSec, 0);
 
+    // Pre-flight budget gate: generation is charged at submit time, so the
+    // gate must refuse any cycle whose WORST-CASE cost would cross the cap —
+    // checking after the fact would overshoot by up to a full in-flight
+    // cycle. Worst case: 15s scene (+15s host riff on hosted shows).
+    const perSec = config.testQuality ? USD_PER_SEC_TEST : USD_PER_SEC_FULL;
+    const worstCycleUsd = (hasHostRiffs(this.show) ? 30 : 15) * perSec;
+
     while (Date.now() < endAt && cycle < config.maxCycles && !this.stopRequested) {
+      if (this.spend?.wouldExceed(worstCycleUsd)) {
+        this.archive.log("budget_reached", {
+          budgetUsd: this.spend.budgetUsd,
+          spentUsd: round2(this.spend.spentUsd),
+        });
+        break;
+      }
       if (inFlight.size >= config.maxConcurrentCycles || bufferedSec() >= config.bufferTargetSec) {
         await sleep(1000);
         continue;
@@ -195,7 +218,11 @@ export class EpisodeRunner {
       return;
     }
 
-    if (this.cachedSegment("closing") || this.show.format.closingRiff.trim()) {
+    // A cached closing is free; generating one respects the budget too.
+    if (
+      this.cachedSegment("closing") ||
+      (this.show.format.closingRiff.trim() && !this.spend?.wouldExceed(15 * perSec))
+    ) {
       await this.enqueueGenerated("closing", () =>
         this.cachedSegment("closing") ??
         this.generator.generateHostClip(this.show.format.closingRiff, this.archive.clipsDir, "closing"),
@@ -206,7 +233,7 @@ export class EpisodeRunner {
 
     await this.chat.stop();
     await this.playout.drainAndStop();
-    this.archive.log("episode_end", { cycles: cycle });
+    this.archive.log("episode_end", { cycles: cycle, estimatedSpendUsd: round2(this.spend?.spentUsd ?? 0) });
     await this.finalizeArchive();
     console.log(`\nEpisode archive: ${this.archive.dir}`);
   }
@@ -304,4 +331,8 @@ export class EpisodeRunner {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }

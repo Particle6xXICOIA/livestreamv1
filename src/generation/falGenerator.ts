@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { ClipGenerator, RawClip, SceneRefs } from "../types.js";
 import { Config } from "../config.js";
 import { ShowConfig, hostClipPrompt } from "../shows.js";
+import { SpendMeter, USD_PER_SEC_FULL, USD_PER_SEC_TEST } from "./spend.js";
 
 /**
  * Real generator backed by MiniMax H3 Max on fal.
@@ -31,6 +32,8 @@ export class FalH3MaxGenerator implements ClipGenerator {
     private _video: Config["video"],
     /** Cheap test generation: anchors-only text-to-video at 480p. */
     private testQuality = false,
+    /** When set, every generation charges its estimated cost at submit time. */
+    private spend?: SpendMeter,
   ) {
     fal.config({ credentials: falKey });
     // Show-level references win; env-level references are the fallback.
@@ -58,6 +61,7 @@ export class FalH3MaxGenerator implements ClipGenerator {
     refsOverride?: SceneRefs | null,
   ): Promise<RawClip> {
     const duration = Math.min(15, Math.max(5, Math.round(durationSec)));
+    this.spend?.charge(duration * (this.testQuality ? USD_PER_SEC_TEST : USD_PER_SEC_FULL));
     const refs = refsOverride ?? this.showLevelRefs();
     const useReferences = !this.testQuality && refs.imageUrls.length > 0;
     let result: { data: { video: { url: string } } };

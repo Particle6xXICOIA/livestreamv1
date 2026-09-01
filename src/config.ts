@@ -11,6 +11,8 @@ export interface Config {
    */
   testQuality: boolean;
   episodeMinutes: number;
+  /** Estimated-spend cap per episode in USD; generation stops when reached. <=0 = uncapped. */
+  episodeBudgetUsd: number;
   /** Hard cap on improv cycles; useful for cheap smoke tests. */
   maxCycles: number;
   /** How many cycles may generate concurrently (pipelining). */
@@ -61,6 +63,9 @@ export function loadConfig(argv: string[]): Config {
     show: String(flags.get("show") ?? env.SHOW ?? "tilly-improv"),
     testQuality: flags.has("test-quality"),
     episodeMinutes: Number(flags.get("minutes") ?? env.EPISODE_MINUTES ?? 30),
+    // Airtime is linear inference spend (~$4.80/full-quality minute), so
+    // every episode carries a dollar cap unless explicitly raised.
+    episodeBudgetUsd: Number(flags.get("budget") ?? env.EPISODE_BUDGET_USD ?? 5),
     maxCycles: Number(flags.get("cycles") ?? Infinity),
     maxConcurrentCycles: Number(flags.get("concurrency") ?? env.MAX_CONCURRENT_CYCLES ?? 2),
     bufferTargetSec: Number(flags.get("buffer") ?? env.BUFFER_TARGET_SEC ?? 45),
