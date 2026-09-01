@@ -325,6 +325,7 @@ export class EpisodeRunner {
             ...(host ? [await this.toClip(host.mp4Path, host.durationSec, "host", `${tag} riff`)] : []),
             await this.toClip(scene.mp4Path, scene.durationSec, "scene", `${tag} scene`),
           ];
+          if (this.hardStopRequested) return;
           this.archive.log("generated", { cycle: thisCycle, generationMs: Date.now() - t0 });
           completed.set(thisCycle, clips);
         } catch (err) {

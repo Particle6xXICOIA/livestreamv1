@@ -191,7 +191,7 @@ export async function compileShow(
   return { show, refusal: null };
 }
 
-function slugify(text: string): string {
+export function slugify(text: string): string {
   const slug = text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -200,7 +200,7 @@ function slugify(text: string): string {
   return slug || "untitled-show";
 }
 
-function uniqueId(base: string, existing: string[]): string {
+export function uniqueId(base: string, existing: string[]): string {
   if (!existing.includes(base)) return base;
   for (let i = 2; ; i++) {
     const candidate = `${base}-${i}`;

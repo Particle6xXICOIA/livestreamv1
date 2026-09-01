@@ -8,6 +8,7 @@ import { loadConfig } from "./config.js";
 import { deleteCreatedShow, getShow, loadShows, saveCreatedShow } from "./shows.js";
 import { DailyBudgetExhausted, buildComponents, makeLedger } from "./components.js";
 import { WebChat } from "./chat/webChat.js";
+import { RateLimiter } from "./chat/rateLimiter.js";
 import { EpisodeRunner, EpisodeStatus } from "./episode/runner.js";
 import { freeBytes, pruneEpisodes, recoverOrphanRecordings } from "./episode/archive.js";
 import {
@@ -456,30 +457,6 @@ const server = http.createServer(async (req, res) => {
 
   send(404, { error: "not found" });
 });
-
-/**
- * Per-connection chat rate limit: a token bucket of `burst` messages that
- * refills `perSec` per second. Keeps one keyboard from flooding the director
- * (and everyone's chat pane) — a courtesy limit, not a security boundary.
- */
-class RateLimiter {
-  private tokens: number;
-  private last = Date.now();
-  constructor(
-    private burst = 5,
-    private perSec = 0.5,
-  ) {
-    this.tokens = burst;
-  }
-  allow(): boolean {
-    const now = Date.now();
-    this.tokens = Math.min(this.burst, this.tokens + ((now - this.last) / 1000) * this.perSec);
-    this.last = now;
-    if (this.tokens < 1) return false;
-    this.tokens -= 1;
-    return true;
-  }
-}
 
 const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {

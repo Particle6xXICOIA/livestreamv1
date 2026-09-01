@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install ffmpeg (playout, normalization, and the title-card stub generator)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Dry-run episode smoke test (zero inference spend)
+        run: |
+          timeout 300 npm run episode -- --dry-run --minutes 1 --cycles 2 --out "$RUNNER_TEMP/ep"
+          test -s "$RUNNER_TEMP"/ep/episodes/*/episode.mp4
+          grep -q '"type":"episode_end"' "$RUNNER_TEMP"/ep/episodes/*/log.jsonl
