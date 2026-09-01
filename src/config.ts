@@ -2,6 +2,12 @@ export interface Config {
   dryRun: boolean;
   /** Which show config (shows/<id>.json) this episode runs. */
   show: string;
+  /**
+   * Cheap test generation: prompt-anchors-only text-to-video at 480p
+   * (~$0.0125/s promo vs $0.08/s for reference-to-video). No likeness/voice
+   * references — for plumbing and pacing tests, never for real episodes.
+   */
+  testQuality: boolean;
   episodeMinutes: number;
   /** Hard cap on improv cycles; useful for cheap smoke tests. */
   maxCycles: number;
@@ -48,6 +54,7 @@ export function loadConfig(argv: string[]): Config {
   return {
     dryRun: flags.has("dry-run"),
     show: String(flags.get("show") ?? env.SHOW ?? "tilly-improv"),
+    testQuality: flags.has("test-quality"),
     episodeMinutes: Number(flags.get("minutes") ?? env.EPISODE_MINUTES ?? 30),
     maxCycles: Number(flags.get("cycles") ?? Infinity),
     maxConcurrentCycles: Number(flags.get("concurrency") ?? env.MAX_CONCURRENT_CYCLES ?? 2),

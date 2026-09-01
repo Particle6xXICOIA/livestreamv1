@@ -48,6 +48,7 @@
     <select id="showSelect"></select>
     <label>min <input id="minutes" type="number" min="1" max="60" value="10"></label>
     <label>cycles <input id="cycles" type="number" min="1" max="99" placeholder="∞"></label>
+    <label title="480p, prompt-only likeness (no reference conditioning) — ~85% cheaper. For plumbing/pacing tests, not real episodes."><input id="testQ" type="checkbox"> test&nbsp;$</label>
     <button id="startBtn">Start episode</button>
     <button id="stopBtn" class="ghost">Stop</button>
     <span id="status"></span>
@@ -235,7 +236,8 @@
       const minutes = Number(document.getElementById("minutes").value) || 10;
       const cycles = Number(document.getElementById("cycles").value) || undefined;
       const show = document.getElementById("showSelect").value || undefined;
-      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}) });
+      const quality = document.getElementById("testQ").checked ? "test" : undefined;
+      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}) });
       status.textContent = "episode starting — video appears in ~1 minute";
     });
     document.getElementById("stopBtn").addEventListener("click", () => {

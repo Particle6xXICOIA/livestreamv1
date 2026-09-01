@@ -89,7 +89,7 @@ const server = http.createServer(async (req, res) => {
       if (running) return send(409, { error: "an episode is already running" });
       let body = "";
       for await (const chunk of req) body += chunk;
-      let params: { minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string } = {};
+      let params: { minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string; quality?: string } = {};
       try {
         params = body ? JSON.parse(body) : {};
       } catch {
@@ -106,6 +106,7 @@ const server = http.createServer(async (req, res) => {
       argv.push("--minutes", String(params.minutes || 10));
       if (params.cycles) argv.push("--cycles", String(params.cycles));
       if (params.dryRun) argv.push("--dry-run");
+      if (params.quality === "test") argv.push("--test-quality");
       const config = loadConfig(argv);
       // Default output is the built-in platform; {"output":"rtmp"} opts into
       // pushing to the configured RTMP_URL (YouTube/Twitch) instead.
@@ -140,6 +141,7 @@ const server = http.createServer(async (req, res) => {
         started: true,
         show: show.id,
         minutes: config.episodeMinutes,
+        quality: config.testQuality ? "test (480p, no references)" : "full (reference-to-video)",
         output: config.hlsDir ? "platform (HLS)" : config.rtmpUrl ? "rtmp" : "local file",
       });
     }
