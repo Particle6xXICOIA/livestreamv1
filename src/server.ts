@@ -41,7 +41,13 @@ let currentShowId: string | null = null;
 let currentShowHint: string | null = null;
 
 function statusPayload() {
-  return { type: "status", live: running, showTitle: currentShowTitle, hint: currentShowHint };
+  return {
+    type: "status",
+    live: running,
+    showTitle: currentShowTitle,
+    hint: currentShowHint,
+    spentUsd: runner?.spentUsd ?? null,
+  };
 }
 
 async function readBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffer> {
@@ -206,7 +212,7 @@ const server = http.createServer(async (req, res) => {
       if (running) return send(409, { error: "an episode is already running" });
       let body = "";
       for await (const chunk of req) body += chunk;
-      let params: { minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string; quality?: string } = {};
+      let params: { minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string; quality?: string; budget?: number } = {};
       try {
         params = body ? JSON.parse(body) : {};
       } catch {
@@ -221,6 +227,10 @@ const server = http.createServer(async (req, res) => {
       const argv = [...baseArgs];
       // Airtime is linear inference spend — default short unless asked for more.
       argv.push("--minutes", String(params.minutes || 10));
+      // Estimated-spend cap: default $5 unless explicitly raised (0 = uncapped).
+      if (params.budget !== undefined && Number.isFinite(Number(params.budget))) {
+        argv.push("--budget", String(params.budget));
+      }
       if (params.cycles) argv.push("--cycles", String(params.cycles));
       if (params.dryRun) argv.push("--dry-run");
       if (params.quality === "test") argv.push("--test-quality");
@@ -232,8 +242,8 @@ const server = http.createServer(async (req, res) => {
         config.rtmpUrl = null;
         fs.rmSync(HLS_DIR, { recursive: true, force: true });
       }
-      const { chat, director, generator } = buildComponents(config, show, webChat);
-      runner = new EpisodeRunner(config, show, chat, director, generator);
+      const { chat, director, generator, spend } = buildComponents(config, show, webChat);
+      runner = new EpisodeRunner(config, show, chat, director, generator, spend);
       runner.onDecision = (decision) => {
         broadcast({
           type: "system",
@@ -241,6 +251,8 @@ const server = http.createServer(async (req, res) => {
             ? `🎬 Staging ${decision.suggestion.username}'s suggestion: "${decision.suggestion.text}" — on screen in a minute or so.`
             : `🎬 The director invented this scene — keep the !prompt suggestions coming!`,
         });
+        // Refresh the producer's live spend readout each cycle.
+        broadcast(statusPayload());
       };
       running = true;
       currentShowTitle = show.title;
@@ -262,6 +274,7 @@ const server = http.createServer(async (req, res) => {
         started: true,
         show: show.id,
         minutes: config.episodeMinutes,
+        budgetUsd: config.dryRun ? 0 : config.episodeBudgetUsd,
         quality: config.testQuality ? "test (480p, no references)" : "full (reference-to-video)",
         output: config.hlsDir ? "platform (HLS)" : config.rtmpUrl ? "rtmp" : "local file",
       });

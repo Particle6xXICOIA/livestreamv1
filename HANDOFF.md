@@ -37,6 +37,17 @@ video. **Stop ends gracefully**: buffered + in-flight content airs, then the
 sign-off — the stream may continue 1–2 minutes after clicking (a stop during
 warm-up cancels outright).
 
+**Every episode has a spend cap — default $5** (producer "$ cap" field /
+`{"budget": N}` on /start / `EPISODE_BUDGET_USD`; 0 = uncapped). The
+generator charges a conservative estimate per clip at submit time
+($0.08/s full, $0.05/s test) and the loop refuses any cycle whose
+worst-case cost would cross the cap, so the cap is a true ceiling — the
+show then airs what's buffered and closes. The producer panel shows the
+running ~$ estimate while live. Context: full quality ≈ $4.80/min, so the
+old default (10 min, no cap) cost ~$48 per Start — the cap exists because
+exactly that happened on 1 Sep 2026 (~$80 day). Raising it is a per-Start,
+deliberate act. Dry runs are never capped (they're free).
+
 | Mode | How | Cost / on-air minute |
 |---|---|---|
 | Dry run | `{"dryRun": true}` | $0 (title cards, full loop) |

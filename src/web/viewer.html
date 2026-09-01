@@ -35,6 +35,7 @@
   #producer input { width: 56px; padding: 4px 6px; }
   #producer select { background: #1e1a2e; color: inherit; border: 1px solid #3a3554; border-radius: 6px; padding: 5px 6px; font: inherit; max-width: 170px; }
   #producer .ghost { background: #3a3554; }
+  #producer #spend { color: #f4c95d; font-variant-numeric: tabular-nums; }
   #producer #status { color: #8f88a8; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   dialog { background: #1e1a2e; color: #eee9f5; border: 1px solid #3a3554; border-radius: 10px; padding: 18px; width: min(560px, 92vw); }
   dialog::backdrop { background: rgba(0,0,0,.6); }
@@ -59,10 +60,12 @@
     <select id="showSelect"></select>
     <label>min <input id="minutes" type="number" min="1" max="60" value="10"></label>
     <label>cycles <input id="cycles" type="number" min="1" max="99" placeholder="∞"></label>
+    <label title="Estimated-spend cap for this episode (USD). Generation stops when it's hit; buffered content and the sign-off still air. 0 = uncapped. Full quality costs ~$4.80/min, so the $5 default ends a full-quality stream after roughly a minute — raise it deliberately for longer shows.">$&nbsp;cap <input id="budget" type="number" min="0" step="1" value="5"></label>
     <label title="480p, prompt-only likeness (no reference conditioning) — ~85% cheaper. For plumbing/pacing tests, not real episodes."><input id="testQ" type="checkbox"> test&nbsp;$</label>
     <label title="Free: title-card clips instead of generated video. Use this to preview a new show's loop, prompts, and pacing at $0."><input id="dryQ" type="checkbox"> dry</label>
     <button id="startBtn">Start episode</button>
     <button id="stopBtn" class="ghost">Stop</button>
+    <span id="spend" title="Estimated generation spend this episode"></span>
     <button id="newShowBtn" class="ghost" title="Describe any livestream experience and the platform compiles it into a runnable show.">＋ New show</button>
     <button id="episodesBtn" class="ghost" title="Recordings of past episodes — watch or download.">Episodes</button>
     <span id="status"></span>
@@ -240,6 +243,8 @@
         }
         const startBtn = document.getElementById("startBtn");
         if (startBtn) startBtn.disabled = msg.live;
+        const spend = document.getElementById("spend");
+        if (spend) spend.textContent = msg.live && msg.spentUsd != null ? `~$${msg.spentUsd.toFixed(2)}` : "";
       }
     };
     ws.onclose = () => setTimeout(connect, 3000);
@@ -290,7 +295,10 @@
       const show = document.getElementById("showSelect").value || undefined;
       const quality = document.getElementById("testQ").checked ? "test" : undefined;
       const dryRun = document.getElementById("dryQ").checked || undefined;
-      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}), ...(dryRun ? { dryRun } : {}) });
+      // An emptied field falls back to the server's $5 default — never to uncapped.
+      const budgetRaw = document.getElementById("budget").value.trim();
+      const budget = budgetRaw === "" ? undefined : Math.max(0, Number(budgetRaw));
+      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}), ...(dryRun ? { dryRun } : {}), ...(budget !== undefined ? { budget } : {}) });
       status.textContent = "episode starting — video appears in ~1 minute";
     });
     document.getElementById("stopBtn").addEventListener("click", () => {

@@ -8,6 +8,7 @@ import { StubDirector } from "./director/stubDirector.js";
 import { ClaudeDirector } from "./director/claudeDirector.js";
 import { StubGenerator } from "./generation/stubGenerator.js";
 import { FalH3MaxGenerator } from "./generation/falGenerator.js";
+import { SpendMeter } from "./generation/spend.js";
 
 /**
  * Each component independently runs real or stub depending on configuration,
@@ -23,7 +24,10 @@ export function buildComponents(
   chat: ChatSource;
   director: Director;
   generator: ClipGenerator;
+  spend: SpendMeter;
 } {
+  // Dry runs are free — never let the budget gate cut them short.
+  const spend = new SpendMeter(config.dryRun ? 0 : config.episodeBudgetUsd);
   const chat = chatOverride
     ? chatOverride
     : config.dryRun
@@ -43,10 +47,10 @@ export function buildComponents(
   const generator = config.dryRun
     ? new StubGenerator(config.video)
     : config.falKey
-      ? new FalH3MaxGenerator(config.falKey, show, envFallbackRefs(config, show), config.video, config.testQuality)
+      ? new FalH3MaxGenerator(config.falKey, show, envFallbackRefs(config, show), config.video, config.testQuality, spend)
       : warnStub("generator", "FAL_KEY not set", new StubGenerator(config.video));
 
-  return { chat, director, generator };
+  return { chat, director, generator, spend };
 }
 
 /**
