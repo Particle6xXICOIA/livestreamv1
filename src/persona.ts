@@ -35,6 +35,19 @@ YOUR JOB EACH CYCLE:
 Keep every cycle fresh: vary settings, costumes, and comic shapes relative to the recent-cycles list you are given.`;
 
 /**
+ * Fixed opening/closing riffs. Because they never change, `npm run fillers`
+ * pre-generates their clips into assets/segments/ and episodes reuse them —
+ * the stream opens instantly instead of vamping while the opener renders.
+ */
+export const OPENING_RIFF =
+  "Hello, you've reached Tilly Learns Improv, where I attempt acting suggestions from strangers " +
+  "with no rehearsal and, being made of math, no excuse. Type an idea in chat and I'll have a go.";
+
+export const CLOSING_RIFF =
+  "That's the whole show. I'd say I'll do better next time, but honestly some of that felt dangerously " +
+  "close to competent. Same time soon. Tilly out.";
+
+/**
  * Prompts for the filler library: Tilly vamping on her set between scenes.
  * Generated once via `npm run fillers` into assets/fallback/, these air
  * whenever generation falls behind — so the gaps are still show.

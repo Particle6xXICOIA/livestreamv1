@@ -4,15 +4,11 @@ import { ChatSource, Clip, ClipGenerator, Director } from "../types.js";
 import { Config } from "../config.js";
 import { Playout } from "../playout/playout.js";
 import { EpisodeArchive } from "./archive.js";
-import { normalizeToTs, renderCardClip } from "../generation/ffmpeg.js";
+import { normalizeToTs, probeDurationSec, renderCardClip } from "../generation/ffmpeg.js";
+import { OPENING_RIFF, CLOSING_RIFF } from "../persona.js";
 
-const OPENING_RIFF =
-  "Hello, you've reached Tilly Learns Improv, where I attempt acting suggestions from strangers " +
-  "with no rehearsal and, being made of math, no excuse. Type an idea in chat and I'll have a go.";
-
-const CLOSING_RIFF =
-  "That's the whole show. I'd say I'll do better next time, but honestly some of that felt dangerously " +
-  "close to competent. Same time soon. Tilly out.";
+/** Pre-generated fixed segments (created by `npm run fillers`) live here. */
+const SEGMENTS_DIR = "assets/segments";
 
 export class EpisodeRunner {
   private playout: Playout;
@@ -45,12 +41,12 @@ export class EpisodeRunner {
     });
 
     this.playout.setFillers(await this.makeFillers());
-    this.playout.start();
     await this.chat.start();
 
-    // Opening segment plays while the first cycle generates.
+    // The stream does not go live until the opening AND the first cycle are
+    // buffered (see releaseReady below) — so it opens on content, not filler.
     await this.enqueueGenerated("opening", () =>
-      this.generator.generateHostClip(OPENING_RIFF, this.archive.clipsDir, "opening"),
+      this.cachedSegment("opening") ?? this.generator.generateHostClip(OPENING_RIFF, this.archive.clipsDir, "opening"),
     );
 
     const endAt = Date.now() + config.episodeMinutes * 60_000;
@@ -65,11 +61,17 @@ export class EpisodeRunner {
     let nextToAir = 1;
     let cycle = 0;
 
+    let live = false;
     const releaseReady = () => {
       while (completed.has(nextToAir)) {
         for (const clip of completed.get(nextToAir)!) this.playout.enqueue(clip);
         completed.delete(nextToAir);
         nextToAir++;
+      }
+      if (!live && nextToAir > 1) {
+        live = true;
+        this.archive.log("going_live", { bufferedSec: this.playout.queuedSeconds });
+        this.playout.start();
       }
     };
     const bufferedSec = () =>
@@ -146,8 +148,10 @@ export class EpisodeRunner {
     releaseReady();
 
     await this.enqueueGenerated("closing", () =>
-      this.generator.generateHostClip(CLOSING_RIFF, this.archive.clipsDir, "closing"),
+      this.cachedSegment("closing") ?? this.generator.generateHostClip(CLOSING_RIFF, this.archive.clipsDir, "closing"),
     );
+    // Degenerate episode (zero cycles aired): still go live to play what exists.
+    if (!live) this.playout.start();
 
     await this.chat.stop();
     await this.playout.drainAndStop();
@@ -172,7 +176,14 @@ export class EpisodeRunner {
     }
   }
 
+  /** Returns the pre-generated segment clip when the library has it, else null. */
+  private cachedSegment(kind: "opening" | "closing"): Promise<{ mp4Path: string; durationSec: number }> | null {
+    const mp4Path = path.join(SEGMENTS_DIR, `${kind}-host.mp4`);
+    return fs.existsSync(mp4Path) ? Promise.resolve({ mp4Path, durationSec: 0 }) : null;
+  }
+
   private async toClip(mp4Path: string, durationSec: number, kind: Clip["kind"], label: string): Promise<Clip> {
+    if (durationSec <= 0) durationSec = await probeDurationSec(mp4Path);
     return { tsPath: await normalizeToTs(mp4Path, this.config.video), durationSec, kind, label };
   }
 
