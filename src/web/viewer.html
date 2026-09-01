@@ -129,7 +129,15 @@
       if (msg.type === "status") {
         liveBadge.textContent = msg.live ? "LIVE" : "offline";
         liveBadge.classList.toggle("on", msg.live);
-        if (msg.live) waitForStream(); else stopPlayer();
+        if (msg.live) {
+          offline.innerHTML = "Tilly is warming up — the first scene takes about a minute to generate.<br>The show starts here automatically.";
+          waitForStream();
+        } else {
+          offline.innerHTML = "Tilly isn't live right now.<br>This page starts playing automatically when an episode begins.";
+          stopPlayer();
+        }
+        const startBtn = document.getElementById("startBtn");
+        if (startBtn) startBtn.disabled = msg.live;
       }
     };
     ws.onclose = () => setTimeout(connect, 3000);
@@ -155,12 +163,17 @@
         status.textContent = res.ok ? JSON.stringify(data) : `error: ${data.error ?? res.status}`;
       } catch (err) { status.textContent = String(err); }
     };
-    document.getElementById("startBtn").addEventListener("click", () => {
+    document.getElementById("startBtn").addEventListener("click", async () => {
       const minutes = Number(document.getElementById("minutes").value) || 10;
       const cycles = Number(document.getElementById("cycles").value) || undefined;
-      call("/start", { minutes, ...(cycles ? { cycles } : {}) });
+      await call("/start", { minutes, ...(cycles ? { cycles } : {}) });
+      status.textContent = "episode starting — video appears in ~1 minute";
     });
-    document.getElementById("stopBtn").addEventListener("click", () => call("/stop"));
+    document.getElementById("stopBtn").addEventListener("click", () => {
+      if (confirm("End the episode? Tilly will play her sign-off and the stream will stop.")) {
+        call("/stop");
+      }
+    });
   }
 
   document.getElementById("form").addEventListener("submit", (e) => {

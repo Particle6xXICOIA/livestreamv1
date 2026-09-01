@@ -38,7 +38,7 @@ export class EpisodeRunner {
     this.archive.log("episode_start", {
       dryRun: config.dryRun,
       minutes: config.episodeMinutes,
-      rtmp: config.rtmpUrl ? "configured" : "local file",
+      output: config.hlsDir ? "hls" : config.rtmpUrl ? "rtmp" : "local file",
     });
 
     this.playout.setFillers(await this.makeFillers());
@@ -147,6 +147,14 @@ export class EpisodeRunner {
     // Let in-flight cycles finish and air before the closing segment.
     await Promise.allSettled([...inFlight.values()]);
     releaseReady();
+
+    // Stopped before anything aired: cancel outright — no ghost 16s episode.
+    if (!live && this.stopRequested) {
+      await this.chat.stop();
+      await this.playout.kill();
+      this.archive.log("episode_end", { cycles: cycle, aborted: "stopped before going live" });
+      return;
+    }
 
     await this.enqueueGenerated("closing", () =>
       this.cachedSegment("closing") ?? this.generator.generateHostClip(CLOSING_RIFF, this.archive.clipsDir, "closing"),
