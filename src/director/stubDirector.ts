@@ -17,7 +17,7 @@ export class StubDirector implements Director {
       scenePrompt:
         `${TILLY_VISUAL_ANCHORS}, acting out: ${idea}. ` +
         `Medium shot, static camera, one clear comedic beat with a beginning and an end.`,
-      sceneDurationSec: 8,
+      sceneDurationSec: 12,
       declined: [],
     };
   }

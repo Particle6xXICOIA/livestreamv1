@@ -33,10 +33,13 @@ Requires Node 20+ and ffmpeg on PATH.
 | `RTMP_URL` | Stream live (YouTube/Twitch ingest URL incl. key); unset = local file |
 | `TILLY_REFERENCE_IMAGE_URLS` | Likeness consistency (H3 Max reference-to-video) |
 | `TILLY_REFERENCE_AUDIO_URL` | Voice consistency (5–15s reference clip) |
+| `MAX_CONCURRENT_CYCLES` | Cycles generating in parallel (default 2; also `--concurrency N`) |
+| `BUFFER_TARGET_SEC` | Content to keep buffered ahead of air (default 45; also `--buffer N`) |
 
 Any component without its key runs as a stub, so the loop is testable at every
 level of fidelity. `Ctrl-C` ends an episode gracefully (closing segment, clean
 stream shutdown); pressing it twice force-quits.
 
-Drop pre-generated filler clips (mp4) into `assets/fallback/` to replace the
-default "Tilly is thinking" card that airs when generation falls behind.
+Generate the filler library once with `npm run fillers` — real Tilly
+"vamping on set" clips written to `assets/fallback/` that air whenever
+generation falls behind (a placeholder card is used if the folder is empty).
