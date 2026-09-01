@@ -83,6 +83,12 @@
   <input id="nsAudio" type="file" accept="audio/*">
   <div id="nsStatus"></div>
   <div id="nsPreview"></div>
+  <div id="nsOpts" style="display:none;margin-top:10px;font-size:13px">
+    <label style="display:inline;margin-right:14px" title="Generate one canonical reference still per character so they look the same in every clip. Untick to let the model draw each character fresh from the prompt every clip — looks will vary, which stylized shows can embrace.">
+      <input type="checkbox" id="nsStills" checked> consistent looks (reference stills)</label>
+    <label style="display:inline" title="Mint a reference voice per speaking character so they sound the same in every clip. Untick and voices vary clip to clip. Needs reference stills (or uploaded images).">
+      <input type="checkbox" id="nsVoices" checked> consistent voices (voice seeds)</label>
+  </div>
   <menu>
     <button id="nsCompile">Compile (free)</button>
     <button id="nsBuild" class="ghost" disabled>Generate assets</button>
@@ -363,8 +369,26 @@
     const nsStatus = document.getElementById("nsStatus");
     const nsPreview = document.getElementById("nsPreview");
     const nsBuild = document.getElementById("nsBuild");
+    const nsStills = document.getElementById("nsStills");
+    const nsVoices = document.getElementById("nsVoices");
     let draftId = null;
     let pollTimer = null;
+    let draftEstimate = null; // { usdStills, usdVoices, usdClips } from compile
+    let draftHadUploads = false;
+
+    // Consistency is optional: the price on the build button reflects the
+    // stills/voices toggles (voice seeds need stills or uploaded images).
+    function buildPrice() {
+      if (!draftEstimate) return 0;
+      const stills = nsStills.checked ? draftEstimate.usdStills : 0;
+      const voices = nsVoices.checked && (nsStills.checked || draftHadUploads) ? draftEstimate.usdVoices : 0;
+      return Math.round((stills + voices + draftEstimate.usdClips) * 100) / 100;
+    }
+    function refreshBuildLabel() {
+      if (draftEstimate) nsBuild.textContent = `Generate assets (~$${buildPrice().toFixed(2)})`;
+    }
+    nsStills.addEventListener("change", refreshBuildLabel);
+    nsVoices.addEventListener("change", refreshBuildLabel);
     document.getElementById("newShowBtn").addEventListener("click", () => dlg.showModal());
     document.getElementById("nsClose").addEventListener("click", () => {
       dlg.close();
@@ -436,10 +460,13 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.refusal ? `Declined: ${data.refusal}` : (data.error ?? `HTTP ${res.status}`));
         draftId = data.id;
+        draftEstimate = data.estimate;
+        draftHadUploads = imageUrls.length > 0;
         renderPreview(data.show, data.estimate);
+        document.getElementById("nsOpts").style.display = "block";
         nsBuild.disabled = false;
-        nsBuild.textContent = `Generate assets (~$${data.estimate.dollars.toFixed(2)})`;
-        nsStatus.textContent = "Draft saved. It's already in the show picker — start it with the dry checkbox for a free preview, or generate its assets now for full quality.";
+        refreshBuildLabel();
+        nsStatus.textContent = "Draft saved. It's already in the show picker — start it with the dry checkbox for a free preview, or generate its assets now for full quality (untick a consistency option to let the model improvise that part per clip, cheaper).";
         refreshShows(draftId);
       } catch (err) { nsStatus.textContent = String(err.message ?? err); }
     });
@@ -451,7 +478,7 @@
       const res = await fetch("/shows/build", {
         method: "POST",
         headers: { authorization: `Bearer ${ctl}`, "content-type": "application/json" },
-        body: JSON.stringify({ id: draftId }),
+        body: JSON.stringify({ id: draftId, stills: nsStills.checked, voices: nsVoices.checked }),
       });
       const data = await res.json();
       if (!res.ok) { nsStatus.textContent = data.error ?? `HTTP ${res.status}`; nsBuild.disabled = false; return; }

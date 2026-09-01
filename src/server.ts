@@ -162,9 +162,10 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // Phase 2: the paid asset build (reference stills, voice seeds, fillers).
+    // Phase 2: the paid asset build. stills/voices are optional consistency:
+    // false means that character trait regenerates per clip from the prompt.
     if (req.method === "POST" && url.pathname === "/shows/build") {
-      let params: { id?: string } = {};
+      let params: { id?: string; stills?: boolean; voices?: boolean } = {};
       try {
         params = JSON.parse((await readBody(req, 4096)).toString() || "{}");
       } catch {
@@ -174,8 +175,9 @@ const server = http.createServer(async (req, res) => {
         const show = getShow(String(params.id ?? ""));
         if (show.origin !== "created") return send(400, { error: "built-in shows build via `npm run fillers`" });
         if (isBuilding(show.id)) return send(409, { error: "already building" });
-        startBuild(show, bootConfig);
-        return send(202, { building: show.id, estimate: estimateBuildCost(show) });
+        const opts = { stills: params.stills !== false, voices: params.voices !== false };
+        startBuild(show, bootConfig, opts);
+        return send(202, { building: show.id, estimate: estimateBuildCost(show, opts) });
       } catch (err) {
         return send(400, { error: String(err) });
       }

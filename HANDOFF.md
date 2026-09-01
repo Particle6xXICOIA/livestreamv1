@@ -94,13 +94,18 @@ fal storage), then:
    config (cast, chat rules, state tracking, fillers…). The draft saves to
    `DATA_DIR/shows/<id>.json`, appears in the show picker immediately, and
    can be aired with the **dry** checkbox for a $0 preview of the loop.
-2. **Generate assets (paid, ~$2–6)** — `POST /shows/build` mints one
+2. **Generate assets (paid, ~$2–8)** — `POST /shows/build` mints one
    canonical reference still per character that lacks one (flux on fal),
    seeds a reference voice for speaking characters (one short
    reference-to-video clip → audio track extracted → fal storage), then
-   generates the filler library + cached opening/closing. Progress polls via
-   `GET /shows/build-status?id=`; failed builds save their error and retry
-   from where they left off. `POST /shows/delete` removes a created show.
+   generates the filler library + cached opening/closing. Consistency is
+   OPTIONAL: the dialog's "consistent looks"/"consistent voices" checkboxes
+   (`stills`/`voices` on /shows/build, both default true) can be unticked to
+   let the model draw/voice each character fresh per clip — cheaper, and a
+   legitimate aesthetic for stylized ensembles; voice seeds need stills or
+   uploaded images. Progress polls via `GET /shows/build-status?id=`; failed
+   builds save their error and retry from where they left off.
+   `POST /shows/delete` removes a created show.
 
 Created shows never fall back to the env-level Tilly references — missing
 references generate prompt-only rather than borrowing her likeness.

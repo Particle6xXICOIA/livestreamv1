@@ -207,19 +207,45 @@ function uniqueId(base: string, existing: string[]): string {
   }
 }
 
+/**
+ * Consistency is optional: skipping stills/voices means every clip generates
+ * that character from the prompt's visual anchors alone — looks and voices
+ * vary clip to clip, which stylized shows can happily embrace, and the build
+ * gets cheaper. Both default on.
+ */
+export interface BuildOptions {
+  stills: boolean;
+  voices: boolean;
+}
+
 /** Rough build spend, shown before the creator confirms the paid step. */
-export function estimateBuildCost(show: ShowConfig): { dollars: number; detail: string } {
+export function estimateBuildCost(
+  show: ShowConfig,
+  opts: BuildOptions = { stills: true, voices: true },
+): { dollars: number; detail: string; usdStills: number; usdVoices: number; usdClips: number } {
   const members = allCast(show);
   const stills = members.filter((m) => !m.referenceImageUrls?.length && m.referenceImagePrompt).length;
-  const voices = members.filter((m) => m.speaks && !m.referenceAudioUrl && m.voiceSeedLine).length;
+  // Voice seeding needs a reference still to condition on, so skipping
+  // stills also forgoes voice seeds for members without uploaded images.
+  const voices = members.filter(
+    (m) =>
+      m.speaks && !m.referenceAudioUrl && m.voiceSeedLine &&
+      (m.referenceImageUrls?.length || opts.stills),
+  ).length;
   const riffClips = show.format.hostRiffs === false ? 0 : 2; // cached opening + closing
   const fillers = show.format.fillerPrompts.length;
-  const videoSec = voices * 6 + riffClips * 8 + fillers * 8;
-  const dollars = Math.round((stills * 0.03 + videoSec * 0.08) * 100) / 100;
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const usdStills = opts.stills ? round(stills * 0.03) : 0;
+  const usdVoices = opts.voices ? round(voices * 6 * 0.08) : 0;
+  const usdClips = round((riffClips + fillers) * 8 * 0.08);
+  const dollars = round(usdStills + usdVoices + usdClips);
   return {
     dollars,
+    usdStills,
+    usdVoices,
+    usdClips,
     detail:
-      `${stills} reference still(s), ${voices} voice seed(s), ` +
+      `${opts.stills ? stills : 0} reference still(s), ${opts.voices ? voices : 0} voice seed(s), ` +
       `${riffClips} cached segment(s), ${fillers} filler clip(s) ≈ $${dollars.toFixed(2)}`,
   };
 }
@@ -234,16 +260,20 @@ export function isBuilding(id: string): boolean {
 }
 
 /** Kick off the paid asset build in the background; progress lands in show.build. */
-export function startBuild(show: ShowConfig, config: Config): void {
+export function startBuild(
+  show: ShowConfig,
+  config: Config,
+  opts: BuildOptions = { stills: true, voices: true },
+): void {
   if (activeBuilds.has(show.id)) throw new Error(`show "${show.id}" is already building`);
   if (!config.falKey) throw new Error("FAL_KEY not configured — cannot generate assets");
   activeBuilds.add(show.id);
-  void buildShowAssets(show, config)
+  void buildShowAssets(show, config, opts)
     .catch((err) => console.error(`[build] ${show.id} failed:`, err))
     .finally(() => activeBuilds.delete(show.id));
 }
 
-async function buildShowAssets(show: ShowConfig, config: Config): Promise<void> {
+async function buildShowAssets(show: ShowConfig, config: Config, opts: BuildOptions): Promise<void> {
   fal.config({ credentials: config.falKey! });
   const log: string[] = [];
   const note = (line: string) => {
@@ -254,12 +284,14 @@ async function buildShowAssets(show: ShowConfig, config: Config): Promise<void> 
   };
 
   try {
-    note("build started");
+    note(`build started (stills: ${opts.stills}, voices: ${opts.voices})`);
 
     // 1. Mint a canonical reference still per character that lacks one — a
     // single still per character keeps one consistent look; multiple takes
-    // of the same prompt would each redesign the character.
+    // of the same prompt would each redesign the character. Skipped when the
+    // creator opts for prompt-only generation (looks vary clip to clip).
     for (const member of allCast(show)) {
+      if (!opts.stills) break;
       if (member.referenceImageUrls?.length || !member.referenceImagePrompt) continue;
       note(`generating reference still for ${member.name}…`);
       const result = (await fal.subscribe("fal-ai/flux/dev", {
@@ -277,6 +309,7 @@ async function buildShowAssets(show: ShowConfig, config: Config): Promise<void> 
     const tmpDir = path.join(DATA_DIR, "tmp", show.id);
     fs.mkdirSync(tmpDir, { recursive: true });
     for (const member of allCast(show)) {
+      if (!opts.voices) break;
       if (!member.speaks || member.referenceAudioUrl || !member.voiceSeedLine) continue;
       if (!member.referenceImageUrls?.length) continue;
       note(`seeding voice for ${member.name}…`);
