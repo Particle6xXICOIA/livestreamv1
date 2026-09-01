@@ -30,7 +30,7 @@ export class Playout {
 
   start(): void {
     // Target precedence: self-hosted HLS > RTMP (YouTube/Twitch) > local file.
-    const output = this.target.hlsDir
+    const primary = this.target.hlsDir
       ? [
           "-c", "copy", "-f", "hls",
           "-hls_time", "4", "-hls_list_size", "10",
@@ -40,7 +40,13 @@ export class Playout {
         ]
       : this.target.rtmpUrl
         ? ["-c", "copy", "-f", "flv", this.target.rtmpUrl]
-        : ["-c", "copy", "-f", "mpegts", this.target.localPath];
+        : null;
+    // The aired stream also tees to localPath as a continuous MPEG-TS
+    // recording (HLS segments delete themselves as the stream advances, so
+    // this is the only complete copy). The runner remuxes it to episode.mp4
+    // when the show ends. -c copy: no extra encode cost.
+    const record = ["-c", "copy", "-f", "mpegts", this.target.localPath];
+    const output = primary ? [...primary, ...record] : record;
     this.proc = spawn(
       "ffmpeg",
       ["-hide_banner", "-loglevel", "error", "-re", "-f", "mpegts", "-i", "pipe:0", "-y", ...output],

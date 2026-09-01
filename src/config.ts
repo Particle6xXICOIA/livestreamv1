@@ -1,3 +1,5 @@
+import { DATA_DIR } from "./shows.js";
+
 export interface Config {
   dryRun: boolean;
   /** Which show config (shows/<id>.json) this episode runs. */
@@ -15,7 +17,10 @@ export interface Config {
   maxConcurrentCycles: number;
   /** Stop starting new generations while this many seconds of content are buffered. */
   bufferTargetSec: number;
+  /** Root for per-episode archives (recordings, clips, logs) — under DATA_DIR so they persist. */
   outDir: string;
+  /** Total size cap for archived episodes; oldest are pruned past it. */
+  archiveMaxGB: number;
   rtmpUrl: string | null;
   /** When set, playout writes HLS into this directory instead of RTMP/file. */
   hlsDir: string | null;
@@ -59,7 +64,8 @@ export function loadConfig(argv: string[]): Config {
     maxCycles: Number(flags.get("cycles") ?? Infinity),
     maxConcurrentCycles: Number(flags.get("concurrency") ?? env.MAX_CONCURRENT_CYCLES ?? 2),
     bufferTargetSec: Number(flags.get("buffer") ?? env.BUFFER_TARGET_SEC ?? 45),
-    outDir: String(flags.get("out") ?? "out"),
+    outDir: String(flags.get("out") ?? env.ARCHIVE_DIR ?? DATA_DIR),
+    archiveMaxGB: Number(flags.get("archive-gb") ?? env.ARCHIVE_MAX_GB ?? 4),
     rtmpUrl: (flags.get("rtmp") as string) ?? env.RTMP_URL ?? null,
     hlsDir: (flags.get("hls") as string) ?? null,
     twitchChannel: (flags.get("channel") as string) ?? env.TWITCH_CHANNEL ?? null,

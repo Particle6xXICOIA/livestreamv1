@@ -64,6 +64,7 @@
     <button id="startBtn">Start episode</button>
     <button id="stopBtn" class="ghost">Stop</button>
     <button id="newShowBtn" class="ghost" title="Describe any livestream experience and the platform compiles it into a runnable show.">＋ New show</button>
+    <button id="episodesBtn" class="ghost" title="Recordings of past episodes — watch or download.">Episodes</button>
     <span id="status"></span>
   </div>
 </header>
@@ -84,6 +85,11 @@
     <button id="nsBuild" class="ghost" disabled>Generate assets</button>
     <button id="nsClose" class="ghost">Close</button>
   </menu>
+</dialog>
+<dialog id="episodesDlg">
+  <h3>Episode recordings</h3>
+  <div id="epList" style="max-height:340px;overflow-y:auto;font-size:13px"></div>
+  <menu><button id="epClose" class="ghost">Close</button></menu>
 </dialog>
 <main>
   <div id="stage">
@@ -291,6 +297,57 @@
       if (confirm("End the episode? The sign-off will play and the stream will stop.")) {
         call("/stop");
       }
+    });
+
+    // ---- Episode recordings dialog: watch/download past episodes. ----
+    const epDlg = document.getElementById("episodesDlg");
+    document.getElementById("epClose").addEventListener("click", () => epDlg.close());
+    document.getElementById("episodesBtn").addEventListener("click", async () => {
+      epDlg.showModal();
+      const list = document.getElementById("epList");
+      list.textContent = "Loading…";
+      try {
+        const { episodes } = await (await fetch(`/episodes?key=${encodeURIComponent(key)}`)).json();
+        list.innerHTML = "";
+        if (!episodes.length) list.textContent = "No recordings yet — they appear here after each episode ends.";
+        for (const ep of episodes) {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid #2b2740";
+          const when = (ep.startedAt ?? ep.id).slice(0, 16).replace("T", " ");
+          const label = document.createElement("span");
+          label.style.flex = "1";
+          const dur = !ep.durationSec ? "" :
+            ep.durationSec >= 90 ? ` · ${Math.round(ep.durationSec / 60)}min` : ` · ${Math.round(ep.durationSec)}s`;
+          label.textContent = `${when} — ${ep.show ?? "?"}${ep.dryRun ? " (dry)" : ""}` + dur +
+            (ep.sizeMB ? ` · ${ep.sizeMB}MB` : "");
+          row.appendChild(label);
+          if (ep.hasVideo) {
+            const watch = document.createElement("a");
+            watch.href = `/episodes/${ep.id}/episode.mp4`;
+            watch.target = "_blank";
+            watch.textContent = "watch";
+            watch.style.color = "#f4a5b8";
+            const dl = document.createElement("a");
+            dl.href = watch.href;
+            dl.download = `${ep.show ?? "episode"}-${ep.id}.mp4`;
+            dl.textContent = "download";
+            dl.style.color = "#f4a5b8";
+            row.append(watch, dl);
+          } else {
+            const none = document.createElement("span");
+            none.textContent = "no recording";
+            none.style.color = "#8f88a8";
+            row.appendChild(none);
+          }
+          const log = document.createElement("a");
+          log.href = `/episodes/${ep.id}/log.jsonl`;
+          log.target = "_blank";
+          log.textContent = "log";
+          log.style.color = "#8f88a8";
+          row.appendChild(log);
+          list.appendChild(row);
+        }
+      } catch (err) { list.textContent = String(err); }
     });
 
     // ---- Create-a-show dialog: compile (free) -> preview -> build (paid). ----

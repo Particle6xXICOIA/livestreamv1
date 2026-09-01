@@ -294,6 +294,66 @@ const server = http.createServer(async (req, res) => {
     return res.end(fs.readFileSync(path.join(here, "web/vendor/hls.min.js")));
   }
 
+  // Archived episode recordings (episode.mp4 + log), persisted under
+  // DATA_DIR/episodes by the runner and pruned to ARCHIVE_MAX_GB.
+  if (req.method === "GET" && url.pathname === "/episodes") {
+    const root = path.join(bootConfig.outDir, "episodes");
+    const episodes = [];
+    if (fs.existsSync(root)) {
+      for (const id of fs.readdirSync(root).sort().reverse().slice(0, 50)) {
+        const dir = path.join(root, id);
+        if (!fs.statSync(dir).isDirectory()) continue;
+        const entry: Record<string, unknown> = { id };
+        try {
+          const log = fs.readFileSync(path.join(dir, "log.jsonl"), "utf8").slice(0, 1_000_000);
+          for (const line of log.split("\n")) {
+            if (!line) continue;
+            const ev = JSON.parse(line);
+            if (ev.type === "episode_start") {
+              entry.show = ev.show;
+              entry.dryRun = ev.dryRun;
+              entry.startedAt = ev.t;
+            }
+            if (ev.type === "recording_saved") {
+              entry.durationSec = ev.durationSec;
+              entry.sizeMB = ev.sizeMB;
+            }
+          }
+        } catch {}
+        entry.hasVideo = fs.existsSync(path.join(dir, "episode.mp4"));
+        episodes.push(entry);
+      }
+    }
+    return send(200, { episodes });
+  }
+
+  const episodeFile = url.pathname.match(/^\/episodes\/([\w.-]+)\/(episode\.mp4|log\.jsonl)$/);
+  if (req.method === "GET" && episodeFile) {
+    const file = path.join(bootConfig.outDir, "episodes", episodeFile[1], episodeFile[2]);
+    if (!fs.existsSync(file)) return send(404, { error: "not found" });
+    const type = file.endsWith(".mp4") ? "video/mp4" : "application/jsonl";
+    const size = fs.statSync(file).size;
+    // Single-range support so browsers can seek within the mp4.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ""));
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      if (start >= size || start > end) {
+        res.writeHead(416, { "content-range": `bytes */${size}` });
+        return res.end();
+      }
+      res.writeHead(206, {
+        "content-type": type,
+        "content-length": end - start + 1,
+        "content-range": `bytes ${start}-${end}/${size}`,
+        "accept-ranges": "bytes",
+      });
+      return fs.createReadStream(file, { start, end }).pipe(res);
+    }
+    res.writeHead(200, { "content-type": type, "content-length": size, "accept-ranges": "bytes" });
+    return fs.createReadStream(file).pipe(res);
+  }
+
   if (req.method === "GET" && url.pathname === "/shows") {
     return send(200, {
       shows: [...loadShows().values()].map((s) => ({

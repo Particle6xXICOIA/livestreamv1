@@ -100,7 +100,8 @@ references generate prompt-only rather than borrowing her likeness.
 with `DATA_DIR=/data`, so created shows survive redeploys. The volume is
 tied to that service — deleting the volume/service loses them; there is no
 independent backup yet (a cron rsync to R2 is the cheap upgrade if the
-library grows precious). Episode recordings under `out/` remain ephemeral.
+library grows precious). Episode recordings also live here (see "Secrets &
+env" section above), size-capped by `ARCHIVE_MAX_GB`.
 
 ## Secrets & env
 
@@ -109,8 +110,15 @@ library grows precious). Episode recordings under `out/` remain ephemeral.
 service variables AND the Claude Code cloud environment (so fresh Claude
 sessions can run real generation). Never commit values; this repo is public.
 
-Episode records land in `out/episodes/<timestamp>/` (log.jsonl + clips) on
-the container — **ephemeral, lost on redeploy**; export anything worth keeping.
+Every episode is recorded: playout tees the exact aired stream to disk and
+the runner finalizes it to `episode.mp4` (plus `log.jsonl` and the raw
+generated clip mp4s) under `DATA_DIR/episodes/<timestamp>/` — on the Railway
+volume in production, so recordings survive redeploys. Producer page →
+**Episodes** lists them with watch/download/log links (`GET /episodes`,
+`GET /episodes/<id>/episode.mp4`, viewer-token gated, seekable via Range).
+The archive is capped at `ARCHIVE_MAX_GB` (default 4): oldest episodes are
+pruned after each show, so download anything precious — or raise the cap
+and grow the volume as the library builds.
 
 ## Hard-won fixes — do not re-break
 
