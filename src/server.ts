@@ -45,6 +45,29 @@ function tokenOk(provided: string | null, expected: string | null): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+const VIEWER_COOKIE = "tillyview";
+
+function cookieValue(req: http.IncomingMessage, name: string): string | null {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+/**
+ * Viewer auth: the link token (?key=...) or the cookie set on page load.
+ * HLS playlists reference segments by bare relative name, so segment
+ * requests carry no query string — the cookie is what authorizes them
+ * (and native Safari HLS can only send cookies, never custom params).
+ */
+function viewerOk(req: http.IncomingMessage, url: URL): boolean {
+  return (
+    tokenOk(url.searchParams.get("key"), bootConfig.viewerToken) ||
+    tokenOk(cookieValue(req, VIEWER_COOKIE), bootConfig.viewerToken)
+  );
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   const send = (code: number, obj: unknown) => {
@@ -120,14 +143,18 @@ const server = http.createServer(async (req, res) => {
     return send(405, { error: "method not allowed" });
   }
 
-  // Viewer plane — shared link token (?key=...).
+  // Viewer plane — shared link token (?key=...) or the cookie it sets.
   if (!bootConfig.viewerToken) return send(503, { error: "VIEWER_TOKEN not configured" });
-  if (!tokenOk(url.searchParams.get("key"), bootConfig.viewerToken)) {
+  if (!viewerOk(req, url)) {
     return send(401, { error: "missing or wrong key" });
   }
 
   if (req.method === "GET" && url.pathname === "/") {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      // Segment/WS requests authorize via this cookie (see viewerOk).
+      "set-cookie": `${VIEWER_COOKIE}=${encodeURIComponent(bootConfig.viewerToken)}; Path=/; SameSite=Lax; Max-Age=2592000`,
+    });
     return res.end(fs.readFileSync(path.join(here, "web/viewer.html")));
   }
 
@@ -154,7 +181,7 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "/", "http://localhost");
-  if (url.pathname !== "/chat" || !tokenOk(url.searchParams.get("key"), bootConfig.viewerToken)) {
+  if (url.pathname !== "/chat" || !viewerOk(req, url)) {
     socket.destroy();
     return;
   }
