@@ -109,11 +109,16 @@
     tapPlayBtn.style.display = "none";
   });
 
+  // Keep the warming-up message on screen until frames actually render, so
+  // the viewer never stares at a grey rectangle while the player buffers.
+  video.addEventListener("playing", () => {
+    offline.hidden = true;
+    video.hidden = false;
+  });
+
   function startPlayer() {
     if (playerStarted) return;
     playerStarted = true;
-    offline.hidden = true;
-    video.hidden = false;
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = hlsUrl;
     } else if (window.Hls && Hls.isSupported()) {
@@ -135,10 +140,19 @@
     tapPlayBtn.style.display = "none";
     offline.hidden = false;
   }
-  // The playlist can lag the "live" status by a few seconds — poll until it exists.
+  // The stream is generated in REAL TIME, so a freshly-born playlist has one
+  // segment and a player that attaches immediately starves at the live edge
+  // (grey screen until refresh). Wait for a runway of segments (~16s) so
+  // playback starts a comfortable distance behind live and never underruns.
   async function waitForStream() {
-    for (let i = 0; i < 60 && !playerStarted; i++) {
-      try { if ((await fetch(hlsUrl, { method: "GET" })).ok) return startPlayer(); } catch {}
+    for (let i = 0; i < 90 && !playerStarted; i++) {
+      try {
+        const res = await fetch(hlsUrl);
+        if (res.ok) {
+          const segments = ((await res.text()).match(/#EXTINF/g) ?? []).length;
+          if (segments >= 4) return startPlayer();
+        }
+      } catch {}
       await new Promise(r => setTimeout(r, 3000));
     }
   }
