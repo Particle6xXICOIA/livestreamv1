@@ -55,50 +55,95 @@ export class EpisodeRunner {
 
     const endAt = Date.now() + config.episodeMinutes * 60_000;
     const recentCycles: string[] = [];
+
+    // Pipelined generation: up to maxConcurrentCycles cycles generate at once,
+    // and generation runs ahead of playout until bufferTargetSec of content is
+    // queued. Clips still air strictly in cycle order — finished cycles wait in
+    // `completed` until every earlier cycle has been released to the queue.
+    const inFlight = new Map<number, Promise<void>>();
+    const completed = new Map<number, Clip[]>();
+    let nextToAir = 1;
     let cycle = 0;
 
-    while (Date.now() < endAt && cycle < this.config.maxCycles && !this.stopRequested) {
-      cycle++;
-      const suggestions = this.chat.drainSuggestions();
-      this.archive.log("cycle_start", { cycle, suggestions });
+    const releaseReady = () => {
+      while (completed.has(nextToAir)) {
+        for (const clip of completed.get(nextToAir)!) this.playout.enqueue(clip);
+        completed.delete(nextToAir);
+        nextToAir++;
+      }
+    };
+    const bufferedSec = () =>
+      this.playout.queuedSeconds +
+      [...completed.values()].flat().reduce((s, c) => s + c.durationSec, 0);
 
-      try {
-        const decision = await this.director.decide({
-          suggestions,
-          recentCycles: recentCycles.slice(-8),
-          cycleNumber: cycle,
-        });
-        this.archive.log("decision", {
-          cycle,
-          picked: decision.suggestion,
-          riff: decision.hostRiff,
-          scenePrompt: decision.scenePrompt,
-          sceneSec: decision.sceneDurationSec,
-          declined: decision.declined,
-        });
-        recentCycles.push(
-          decision.suggestion ? decision.suggestion.text : `(invented) ${decision.scenePrompt.slice(0, 80)}`,
-        );
-
-        // Generate host + scene in parallel; enqueue in show order.
-        const tag = `cycle-${String(cycle).padStart(3, "0")}`;
-        const t0 = Date.now();
-        const [host, scene] = await Promise.all([
-          this.generator.generateHostClip(decision.hostRiff, this.archive.clipsDir, tag),
-          this.generator.generateSceneClip(decision.scenePrompt, decision.sceneDurationSec, this.archive.clipsDir, tag),
-        ]);
-        this.archive.log("generated", { cycle, generationMs: Date.now() - t0 });
-
-        this.playout.enqueue(await this.toClip(host.mp4Path, host.durationSec, "host", `${tag} riff`));
-        this.playout.enqueue(await this.toClip(scene.mp4Path, scene.durationSec, "scene", `${tag} scene`));
-      } catch (err) {
-        // A failed cycle must never kill the show — fillers cover the gap.
-        this.archive.log("cycle_error", { cycle, error: String(err) });
+    while (Date.now() < endAt && cycle < config.maxCycles && !this.stopRequested) {
+      if (inFlight.size >= config.maxConcurrentCycles || bufferedSec() >= config.bufferTargetSec) {
+        await sleep(1000);
+        continue;
       }
 
-      // Pacing: don't generate (and pay for) content faster than it airs.
-      await this.playout.waitForQueueBelow(2);
+      cycle++;
+      const thisCycle = cycle;
+      const suggestions = this.chat.drainSuggestions();
+      this.archive.log("cycle_start", { cycle: thisCycle, suggestions });
+
+      // Decide before spawning generation so recentCycles stays coherent
+      // across overlapping cycles.
+      let decision;
+      try {
+        decision = await this.director.decide({
+          suggestions,
+          recentCycles: recentCycles.slice(-8),
+          cycleNumber: thisCycle,
+        });
+      } catch (err) {
+        this.archive.log("cycle_error", { cycle: thisCycle, error: String(err) });
+        completed.set(thisCycle, []);
+        releaseReady();
+        continue;
+      }
+      this.archive.log("decision", {
+        cycle: thisCycle,
+        picked: decision.suggestion,
+        riff: decision.hostRiff,
+        scenePrompt: decision.scenePrompt,
+        sceneSec: decision.sceneDurationSec,
+        declined: decision.declined,
+      });
+      recentCycles.push(
+        decision.suggestion ? decision.suggestion.text : `(invented) ${decision.scenePrompt.slice(0, 80)}`,
+      );
+
+      const task = (async () => {
+        const tag = `cycle-${String(thisCycle).padStart(3, "0")}`;
+        try {
+          const t0 = Date.now();
+          const [host, scene] = await Promise.all([
+            this.generator.generateHostClip(decision.hostRiff, this.archive.clipsDir, tag),
+            this.generator.generateSceneClip(decision.scenePrompt, decision.sceneDurationSec, this.archive.clipsDir, tag),
+          ]);
+          const clips = [
+            await this.toClip(host.mp4Path, host.durationSec, "host", `${tag} riff`),
+            await this.toClip(scene.mp4Path, scene.durationSec, "scene", `${tag} scene`),
+          ];
+          this.archive.log("generated", { cycle: thisCycle, generationMs: Date.now() - t0 });
+          completed.set(thisCycle, clips);
+        } catch (err) {
+          // A failed cycle must never kill the show or stall the air order —
+          // it releases as zero clips and fillers cover the gap.
+          this.archive.log("cycle_error", { cycle: thisCycle, error: String(err) });
+          completed.set(thisCycle, []);
+        } finally {
+          inFlight.delete(thisCycle);
+          releaseReady();
+        }
+      })();
+      inFlight.set(thisCycle, task);
     }
+
+    // Let in-flight cycles finish and air before the closing segment.
+    await Promise.allSettled([...inFlight.values()]);
+    releaseReady();
 
     await this.enqueueGenerated("closing", () =>
       this.generator.generateHostClip(CLOSING_RIFF, this.archive.clipsDir, "closing"),
@@ -157,4 +202,8 @@ export class EpisodeRunner {
     }
     return fillers;
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

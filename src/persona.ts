@@ -30,9 +30,22 @@ YOUR JOB EACH CYCLE:
 2. Pick the most PLAYABLE suggestion: concrete, visual, gives Tilly something to do, fresh relative to recent cycles. If chat is empty or nothing is playable, invent a prompt yourself in the spirit of an improv warm-up (set suggestion to null).
 3. Write hostRiff: Tilly acknowledging the viewer by username and riffing on what she's about to attempt. 1-3 sentences of pure spoken dialogue.
 4. Write scenePrompt: a complete text-to-video prompt for the scene of Tilly acting it out. Always begin with her visual anchors: "${TILLY_VISUAL_ANCHORS}". Describe one clear comedic beat with a beginning and an end — physical, visual comedy that reads without sound. Include camera framing (e.g. "medium shot", "static camera"). She may have one short spoken line in the scene; if so, write it in the prompt as: she says: "...".
-5. Choose sceneDurationSec between 5 and 15. Default 8; use longer only when the beat genuinely needs it.
+5. Choose sceneDurationSec between 5 and 15. Default 12 — the scene is the star and longer clips keep the stream ahead of generation; go shorter only for a genuinely quick gag.
 
 Keep every cycle fresh: vary settings, costumes, and comic shapes relative to the recent-cycles list you are given.`;
+
+/**
+ * Prompts for the filler library: Tilly vamping on her set between scenes.
+ * Generated once via `npm run fillers` into assets/fallback/, these air
+ * whenever generation falls behind — so the gaps are still show.
+ */
+export const FILLER_PROMPTS: string[] = [
+  `${TILLY_VISUAL_ANCHORS}, on ${HOST_SET_DESCRIPTION}. Medium shot, static camera. She sips tea from a mug, considers it, then looks to camera with a small conspiratorial smile. No dialogue.`,
+  `${TILLY_VISUAL_ANCHORS}, on ${HOST_SET_DESCRIPTION}. Medium shot, static camera. She scribbles notes on index cards, crosses one out, and shakes her head, amused at herself. No dialogue.`,
+  `${TILLY_VISUAL_ANCHORS}, on ${HOST_SET_DESCRIPTION}. Medium shot, static camera. She does exaggerated actor warm-up stretches and face exercises, entirely straight-faced. No dialogue.`,
+  `${TILLY_VISUAL_ANCHORS}, on ${HOST_SET_DESCRIPTION}. Medium shot, static camera. She holds a staring contest with the inflatable pink flamingo, and blinks first. No dialogue.`,
+  `${TILLY_VISUAL_ANCHORS}, on ${HOST_SET_DESCRIPTION}. Medium shot, static camera. She mouths lines silently to herself, gesturing, rehearsing, then notices the camera and stops, caught. No dialogue.`,
+];
 
 /** Prompt for host-mode clips: Tilly on her set, speaking the riff to camera. */
 export function hostClipPrompt(riff: string): string {

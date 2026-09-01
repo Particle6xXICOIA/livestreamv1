@@ -50,6 +50,11 @@ export class Playout {
     return this.queue.length;
   }
 
+  /** Seconds of content waiting in the queue (excludes the clip currently airing). */
+  get queuedSeconds(): number {
+    return this.queue.reduce((s, c) => s + c.durationSec, 0);
+  }
+
   /** Producer pacing: resolves once the queue is at or below `n` clips. */
   async waitForQueueBelow(n: number): Promise<void> {
     while (this.running && this.queue.length > n) {
