@@ -1,0 +1,24 @@
+{
+  "//": "Copy to shows/<id>.json to add an experience. For a NEW character: host 1-4 reference stills (~1024px) and a 5-15s clean voice clip on fal storage first (see PLAN.md — same flow used for Tilly), then paste the URLs below. Omitting them falls back to the platform's env-level references, so don't omit them for a non-Tilly character. Generate the show's filler library + cached opening/closing once with: npm run fillers -- --show <id>",
+  "id": "my-show-id",
+  "title": "Display Title",
+  "character": {
+    "name": "CharacterName",
+    "visualAnchors": "identity anchors prefixed to every prompt: age, look, hair, one garment, one distinctive accessory",
+    "referenceImageUrls": ["https://v3b.fal.media/files/..."],
+    "referenceAudioUrl": "https://v3b.fal.media/files/..."
+  },
+  "format": {
+    "premise": "One or two sentences: what this show is.",
+    "suggestionMeaning": "what a !prompt means on this show, with an example",
+    "characterVoice": "- Bullet points describing how the character speaks.\n- Include the register (sentence length, contractions).\n- Include hard 'never' rules.",
+    "sceneInstructions": "How the director should write scene prompts: what a scene shows, comedy shape, any recurring visual devices.",
+    "hostSet": "the host set, described for generation",
+    "openingRiff": "Fixed opening line, spoken to camera.",
+    "closingRiff": "Fixed sign-off, spoken to camera.",
+    "fillerPrompts": [
+      "2-5 full generation prompts (anchors + set + a small wordless bit of business + 'No dialogue.') that air whenever generation falls behind"
+    ],
+    "defaultSceneSec": 12
+  }
+}

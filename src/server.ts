@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { loadConfig } from "./config.js";
+import { getShow, loadShows } from "./shows.js";
 import { buildComponents } from "./components.js";
 import { WebChat } from "./chat/webChat.js";
 import { EpisodeRunner } from "./episode/runner.js";
@@ -25,6 +26,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const webChat = new WebChat();
 let runner: EpisodeRunner | null = null;
 let running = false;
+let currentShowTitle: string | null = null;
+
+function statusPayload() {
+  return { type: "status", live: running, showTitle: currentShowTitle };
+}
 
 const sockets = new Set<WebSocket>();
 function broadcast(obj: unknown): void {
@@ -60,11 +66,17 @@ const server = http.createServer(async (req, res) => {
       if (running) return send(409, { error: "an episode is already running" });
       let body = "";
       for await (const chunk of req) body += chunk;
-      let params: { minutes?: number; cycles?: number; dryRun?: boolean; output?: string } = {};
+      let params: { minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string } = {};
       try {
         params = body ? JSON.parse(body) : {};
       } catch {
         return send(400, { error: "invalid JSON body" });
+      }
+      let show;
+      try {
+        show = getShow(String(params.show ?? bootConfig.show));
+      } catch (err) {
+        return send(400, { error: String(err) });
       }
       const argv = [...baseArgs];
       // Airtime is linear inference spend — default short unless asked for more.
@@ -79,20 +91,23 @@ const server = http.createServer(async (req, res) => {
         config.rtmpUrl = null;
         fs.rmSync(HLS_DIR, { recursive: true, force: true });
       }
-      const { chat, director, generator } = buildComponents(config, webChat);
-      runner = new EpisodeRunner(config, chat, director, generator);
+      const { chat, director, generator } = buildComponents(config, show, webChat);
+      runner = new EpisodeRunner(config, show, chat, director, generator);
       running = true;
-      broadcast({ type: "status", live: true });
+      currentShowTitle = show.title;
+      broadcast(statusPayload());
       runner
         .run()
         .catch((err) => console.error("[server] episode crashed:", err))
         .finally(() => {
           running = false;
           runner = null;
-          broadcast({ type: "status", live: false });
+          currentShowTitle = null;
+          broadcast(statusPayload());
         });
       return send(202, {
         started: true,
+        show: show.id,
         minutes: config.episodeMinutes,
         output: config.hlsDir ? "platform (HLS)" : config.rtmpUrl ? "rtmp" : "local file",
       });
@@ -114,6 +129,12 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && url.pathname === "/") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(fs.readFileSync(path.join(here, "web/viewer.html")));
+  }
+
+  if (req.method === "GET" && url.pathname === "/shows") {
+    return send(200, {
+      shows: [...loadShows().values()].map((s) => ({ id: s.id, title: s.title })),
+    });
   }
 
   if (req.method === "GET" && url.pathname.startsWith("/hls/")) {
@@ -139,7 +160,7 @@ server.on("upgrade", (req, socket, head) => {
   }
   wss.handleUpgrade(req, socket, head, (ws) => {
     sockets.add(ws);
-    ws.send(JSON.stringify({ type: "status", live: running }));
+    ws.send(JSON.stringify(statusPayload()));
     ws.on("close", () => sockets.delete(ws));
     ws.on("message", (raw) => {
       let msg: { name?: string; text?: string } = {};

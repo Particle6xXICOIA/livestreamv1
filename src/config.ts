@@ -1,5 +1,7 @@
 export interface Config {
   dryRun: boolean;
+  /** Which show config (shows/<id>.json) this episode runs. */
+  show: string;
   episodeMinutes: number;
   /** Hard cap on improv cycles; useful for cheap smoke tests. */
   maxCycles: number;
@@ -45,6 +47,7 @@ export function loadConfig(argv: string[]): Config {
   const env = process.env;
   return {
     dryRun: flags.has("dry-run"),
+    show: String(flags.get("show") ?? env.SHOW ?? "tilly-improv"),
     episodeMinutes: Number(flags.get("minutes") ?? env.EPISODE_MINUTES ?? 30),
     maxCycles: Number(flags.get("cycles") ?? Infinity),
     maxConcurrentCycles: Number(flags.get("concurrency") ?? env.MAX_CONCURRENT_CYCLES ?? 2),

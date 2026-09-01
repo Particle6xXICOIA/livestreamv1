@@ -1,9 +1,17 @@
-# Tilly Learns Improv — livestream prototype
+# Tilly Live — character livestream platform
 
-Tilly hosts a live improv show: viewers suggest things in chat (`!prompt order
-a coffee as a Victorian ghost`), an LLM show director picks one and writes her
-riff in her voice, and MiniMax H3 Max (on fal) generates every second on
-screen — host segments and acted-out scenes — pushed continuously to RTMP.
+AI characters host live shows: viewers send suggestions in chat (`!prompt
+order a coffee as a Victorian ghost`), an LLM show director picks one and
+writes the host's riff in character, and MiniMax H3 Max (on fal) generates
+every second on screen — host segments and acted-out scenes — streamed
+continuously to the built-in platform (or RTMP).
+
+**Shows are data**: each experience is a JSON file in `shows/` defining the
+character (visual anchors + fal reference image/voice URLs), premise, prompts,
+set, and fixed opening/closing. Current shows: `tilly-improv`,
+`tilly-agony-aunt`, `tilly-interviews` (viewers invent the guests). Add one by
+copying `shows/_template.json`, then generate its filler library once with
+`npm run fillers -- --show <id>`.
 
 See [PLAN.md](PLAN.md) for the architecture, cost model, and milestones.
 
@@ -43,10 +51,11 @@ Any component without its key runs as a stub, so the loop is testable at every
 level of fidelity. `Ctrl-C` ends an episode gracefully (closing segment, clean
 stream shutdown); pressing it twice force-quits.
 
-Generate the filler library once with `npm run fillers` — real Tilly
-"vamping on set" clips written to `assets/fallback/` that air whenever
-generation falls behind (a placeholder card is used if the folder is empty),
-plus cached opening/closing segments in `assets/segments/`.
+Generate a show's filler library once with `npm run fillers -- --show <id>` —
+"vamping on set" clips plus cached opening/closing segments written to
+`assets/shows/<id>/` that air whenever generation falls behind (a placeholder
+card is used until then). Episodes select a show with `--show <id>` on the
+CLI, `{"show": "<id>"}` on `/start`, or the dropdown in the producer panel.
 
 ## The self-hosted platform
 

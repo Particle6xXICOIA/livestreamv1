@@ -2,7 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { CycleDecision, Director, Suggestion } from "../types.js";
-import { DIRECTOR_SYSTEM_PROMPT } from "../persona.js";
 
 const DecisionSchema = z.object({
   pickedSuggestionId: z
@@ -20,7 +19,10 @@ const DecisionSchema = z.object({
 export class ClaudeDirector implements Director {
   private client: Anthropic;
 
-  constructor(apiKey: string) {
+  constructor(
+    apiKey: string,
+    private systemPrompt: string,
+  ) {
     this.client = new Anthropic({ apiKey });
   }
 
@@ -43,7 +45,7 @@ export class ClaudeDirector implements Director {
       system: [
         {
           type: "text",
-          text: DIRECTOR_SYSTEM_PROMPT,
+          text: this.systemPrompt,
           cache_control: { type: "ephemeral" },
         },
       ],

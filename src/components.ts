@@ -1,4 +1,5 @@
 import { Config } from "./config.js";
+import { ShowConfig, buildDirectorPrompt } from "./shows.js";
 import { ChatSource, ClipGenerator, Director } from "./types.js";
 import { StubChat } from "./chat/stubChat.js";
 import { TwitchChat } from "./chat/twitchChat.js";
@@ -16,6 +17,7 @@ import { FalH3MaxGenerator } from "./generation/falGenerator.js";
  */
 export function buildComponents(
   config: Config,
+  show: ShowConfig,
   chatOverride?: ChatSource,
 ): {
   chat: ChatSource;
@@ -33,18 +35,18 @@ export function buildComponents(
         : warnStub("chat", "no YouTube video id or Twitch channel configured", new StubChat());
 
   const director = config.dryRun
-    ? new StubDirector()
+    ? new StubDirector(show)
     : config.anthropicKey
-      ? new ClaudeDirector(config.anthropicKey)
-      : warnStub("director", "ANTHROPIC_API_KEY not set", new StubDirector());
+      ? new ClaudeDirector(config.anthropicKey, buildDirectorPrompt(show))
+      : warnStub("director", "ANTHROPIC_API_KEY not set", new StubDirector(show));
 
   const generator = config.dryRun
     ? new StubGenerator(config.video)
     : config.falKey
       ? new FalH3MaxGenerator(
           config.falKey,
-          config.tillyReferenceImageUrls,
-          config.tillyReferenceAudioUrl,
+          show,
+          { imageUrls: config.tillyReferenceImageUrls, audioUrl: config.tillyReferenceAudioUrl },
           config.video,
         )
       : warnStub("generator", "FAL_KEY not set", new StubGenerator(config.video));
