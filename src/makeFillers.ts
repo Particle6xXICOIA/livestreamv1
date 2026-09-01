@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { loadConfig } from "./config.js";
-import { FILLER_PROMPTS } from "./persona.js";
+import { FILLER_PROMPTS, OPENING_RIFF, CLOSING_RIFF } from "./persona.js";
 import { StubGenerator } from "./generation/stubGenerator.js";
 import { FalH3MaxGenerator } from "./generation/falGenerator.js";
 
@@ -37,4 +37,18 @@ for (let i = 0; i < count; i++) {
   const clip = await generator.generateSceneClip(FILLER_PROMPTS[i], 8, outDir, tag);
   console.log(`[fillers] wrote ${clip.mp4Path} (${clip.durationSec}s)`);
 }
-console.log(`[fillers] done — ${count} clip(s) in ${outDir}/`);
+
+// Fixed opening/closing segments: generated once here, reused by every
+// episode so the stream opens on content instead of rendering the opener live.
+const segmentsDir = "assets/segments";
+fs.mkdirSync(segmentsDir, { recursive: true });
+for (const [tag, riff] of [["opening", OPENING_RIFF], ["closing", CLOSING_RIFF]] as const) {
+  if (fs.existsSync(`${segmentsDir}/${tag}-host.mp4`)) {
+    console.log(`[fillers] ${tag} segment already exists — skipping`);
+    continue;
+  }
+  console.log(`[fillers] generating ${tag} segment…`);
+  const clip = await generator.generateHostClip(riff, segmentsDir, tag);
+  console.log(`[fillers] wrote ${clip.mp4Path}`);
+}
+console.log(`[fillers] done — ${count} filler clip(s) in ${outDir}/, segments in ${segmentsDir}/`);

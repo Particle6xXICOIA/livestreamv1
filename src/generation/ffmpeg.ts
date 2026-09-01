@@ -43,6 +43,18 @@ export async function normalizeToTs(inputPath: string, video: Config["video"]): 
   return tsPath;
 }
 
+export function probeDurationSec(inputPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", inputPath,
+    ]);
+    let out = "";
+    proc.stdout.on("data", (d) => (out += d.toString()));
+    proc.on("error", reject);
+    proc.on("close", () => resolve(Number(out.trim()) || 0));
+  });
+}
+
 function probeHasAudio(inputPath: string): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffprobe", [
