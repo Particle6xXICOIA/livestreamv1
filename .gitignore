@@ -3,5 +3,6 @@ dist/
 out/
 .env
 *.log
-assets/fallback/*.ts
+assets/shows/*/fallback/*.ts
+assets/shows/*/segments/*.ts
 validation-ep2/
