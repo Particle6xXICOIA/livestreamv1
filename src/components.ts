@@ -43,16 +43,24 @@ export function buildComponents(
   const generator = config.dryRun
     ? new StubGenerator(config.video)
     : config.falKey
-      ? new FalH3MaxGenerator(
-          config.falKey,
-          show,
-          { imageUrls: config.tillyReferenceImageUrls, audioUrl: config.tillyReferenceAudioUrl },
-          config.video,
-          config.testQuality,
-        )
+      ? new FalH3MaxGenerator(config.falKey, show, envFallbackRefs(config, show), config.video, config.testQuality)
       : warnStub("generator", "FAL_KEY not set", new StubGenerator(config.video));
 
   return { chat, director, generator };
+}
+
+/**
+ * Env-level Tilly references only ever back built-in shows; a created show
+ * with missing references must generate prompt-only rather than borrow the
+ * platform default character's likeness.
+ */
+export function envFallbackRefs(
+  config: Config,
+  show: ShowConfig,
+): { imageUrls: string[]; audioUrl: string | null } {
+  return show.origin === "created"
+    ? { imageUrls: [], audioUrl: null }
+    : { imageUrls: config.tillyReferenceImageUrls, audioUrl: config.tillyReferenceAudioUrl };
 }
 
 function warnStub<T>(name: string, why: string, stub: T): T {

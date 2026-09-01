@@ -5,7 +5,13 @@ import { Config } from "../config.js";
 import { Playout } from "../playout/playout.js";
 import { EpisodeArchive } from "./archive.js";
 import { normalizeToTs, probeDurationSec, renderCardClip } from "../generation/ffmpeg.js";
-import { ShowConfig, showAssetDirs } from "../shows.js";
+import {
+  ShowConfig,
+  loadShowState,
+  saveShowState,
+  sceneRefsForCast,
+  showAssetDirs,
+} from "../shows.js";
 
 export class EpisodeRunner {
   private playout: Playout;
@@ -47,13 +53,25 @@ export class EpisodeRunner {
 
     // The stream does not go live until the opening AND the first cycle are
     // buffered (see releaseReady below) — so it opens on content, not filler.
-    await this.enqueueGenerated("opening", () =>
-      this.cachedSegment("opening") ??
-      this.generator.generateHostClip(this.show.format.openingRiff, this.archive.clipsDir, "opening"),
-    );
+    // Riff-less shows with no cached opening go straight into the first scene.
+    if (this.cachedSegment("opening") || this.show.format.openingRiff.trim()) {
+      await this.enqueueGenerated("opening", () =>
+        this.cachedSegment("opening") ??
+        this.generator.generateHostClip(this.show.format.openingRiff, this.archive.clipsDir, "opening"),
+      );
+    }
 
     const endAt = Date.now() + config.episodeMinutes * 60_000;
     const recentCycles: string[] = [];
+
+    // Running show state (scores, story progress) on shows that track it —
+    // seeded from disk when the show persists its saga across streams.
+    let showState: string | null = this.show.format.stateInstructions
+      ? this.show.format.persistState
+        ? loadShowState(this.show)
+        : null
+      : null;
+    if (showState) this.archive.log("state_loaded", { state: showState });
 
     // Pipelined generation: up to maxConcurrentCycles cycles generate at once,
     // and generation runs ahead of playout until bufferTargetSec of content is
@@ -100,6 +118,7 @@ export class EpisodeRunner {
           suggestions,
           recentCycles: recentCycles.slice(-8),
           cycleNumber: thisCycle,
+          showState,
         });
       } catch (err) {
         this.archive.log("cycle_error", { cycle: thisCycle, error: String(err) });
@@ -113,23 +132,39 @@ export class EpisodeRunner {
         riff: decision.hostRiff,
         scenePrompt: decision.scenePrompt,
         sceneSec: decision.sceneDurationSec,
+        cast: decision.castNames,
+        updatedState: decision.updatedState,
         declined: decision.declined,
       });
       recentCycles.push(
         decision.suggestion ? decision.suggestion.text : `(invented) ${decision.scenePrompt.slice(0, 80)}`,
       );
+      if (decision.updatedState !== null && this.show.format.stateInstructions) {
+        showState = decision.updatedState;
+        if (this.show.format.persistState) {
+          try {
+            saveShowState(this.show, showState);
+          } catch (err) {
+            this.archive.log("state_error", { cycle: thisCycle, error: String(err) });
+          }
+        }
+      }
       this.onDecision?.(decision, thisCycle);
 
       const task = (async () => {
         const tag = `cycle-${String(thisCycle).padStart(3, "0")}`;
         try {
           const t0 = Date.now();
+          // Multi-character scenes carry their own reference set; riff-less
+          // shows air the scene alone (no host segment between scenes).
+          const sceneRefs = sceneRefsForCast(this.show, decision.castNames);
+          const riff = decision.hostRiff.trim();
           const [host, scene] = await Promise.all([
-            this.generator.generateHostClip(decision.hostRiff, this.archive.clipsDir, tag),
-            this.generator.generateSceneClip(decision.scenePrompt, decision.sceneDurationSec, this.archive.clipsDir, tag),
+            riff ? this.generator.generateHostClip(riff, this.archive.clipsDir, tag) : null,
+            this.generator.generateSceneClip(decision.scenePrompt, decision.sceneDurationSec, this.archive.clipsDir, tag, sceneRefs),
           ]);
           const clips = [
-            await this.toClip(host.mp4Path, host.durationSec, "host", `${tag} riff`),
+            ...(host ? [await this.toClip(host.mp4Path, host.durationSec, "host", `${tag} riff`)] : []),
             await this.toClip(scene.mp4Path, scene.durationSec, "scene", `${tag} scene`),
           ];
           this.archive.log("generated", { cycle: thisCycle, generationMs: Date.now() - t0 });
@@ -159,10 +194,12 @@ export class EpisodeRunner {
       return;
     }
 
-    await this.enqueueGenerated("closing", () =>
-      this.cachedSegment("closing") ??
-      this.generator.generateHostClip(this.show.format.closingRiff, this.archive.clipsDir, "closing"),
-    );
+    if (this.cachedSegment("closing") || this.show.format.closingRiff.trim()) {
+      await this.enqueueGenerated("closing", () =>
+        this.cachedSegment("closing") ??
+        this.generator.generateHostClip(this.show.format.closingRiff, this.archive.clipsDir, "closing"),
+      );
+    }
     // Degenerate episode (zero cycles aired): still go live to play what exists.
     if (!live) this.playout.start();
 

@@ -1,5 +1,5 @@
 {
-  "//": "Copy to shows/<id>.json to add an experience. For a NEW character: host 1-4 reference stills (~1024px) and a 5-15s clean voice clip on fal storage first (see PLAN.md — same flow used for Tilly), then paste the URLs below. Omitting them falls back to the platform's env-level references, so don't omit them for a non-Tilly character. Generate the show's filler library + cached opening/closing once with: npm run fillers -- --show <id>",
+  "//": "Copy to shows/<id>.json to add a built-in experience — or skip this file entirely and use the producer page's 'New show' button, which compiles a description into this format for you (saved under DATA_DIR/shows/). For a NEW character: host 1-4 reference stills (~1024px) and a 5-15s clean voice clip on fal storage first (see PLAN.md — same flow used for Tilly), then paste the URLs below. Omitting them falls back to the platform's env-level references, so don't omit them for a non-Tilly character. Generate the show's filler library + cached opening/closing once with: npm run fillers -- --show <id>",
   "id": "my-show-id",
   "title": "Display Title",
   "character": {
@@ -8,17 +8,23 @@
     "referenceImageUrls": ["https://v3b.fal.media/files/..."],
     "referenceAudioUrl": "https://v3b.fal.media/files/..."
   },
+  "//cast": "OPTIONAL: additional recurring characters for multi-character shows. Each needs the same shape as character (speaks: true/false controls voice seeding at build time). The director picks who appears per scene (max 2) and their references condition that clip.",
   "format": {
     "premise": "One or two sentences: what this show is.",
-    "suggestionMeaning": "what a !prompt means on this show, with an example",
-    "characterVoice": "- Bullet points describing how the character speaks.\n- Include the register (sentence length, contractions).\n- Include hard 'never' rules.",
+    "suggestionMeaning": "what a !prompt means on this show, with an example — shown to viewers as the chat hint while live",
+    "characterVoice": "- Bullet points describing how the character speaks.\n- Include the register (sentence length, contractions).\n- Include hard 'never' rules.\n- Empty string on shows where nobody speaks.",
     "sceneInstructions": "How the director should write scene prompts: what a scene shows, comedy shape, any recurring visual devices.",
     "hostSet": "the host set, described for generation",
-    "openingRiff": "Fixed opening line, spoken to camera.",
-    "closingRiff": "Fixed sign-off, spoken to camera.",
+    "openingRiff": "Fixed opening line, spoken to camera. Empty string when hostRiffs is false.",
+    "closingRiff": "Fixed sign-off, spoken to camera. Empty string when hostRiffs is false.",
     "fillerPrompts": [
       "2-5 full generation prompts (anchors + set + a small wordless bit of business + 'No dialogue.') that air whenever generation falls behind"
     ],
-    "defaultSceneSec": 12
+    "defaultSceneSec": 12,
+    "//optional": "The three fields below unlock chat mechanics beyond scene suggestions:",
+    "interactionRules": "OPTIONAL: how the director interprets !prompt messages (what counts as a vote / environment nudge / director's note, how conflicts resolve).",
+    "stateInstructions": "OPTIONAL: what running state the director tracks between cycles (scores, leaderboard, story progress) and how it evolves. Enables votes, competitions, and ongoing journeys.",
+    "persistState": false,
+    "hostRiffs": true
   }
 }

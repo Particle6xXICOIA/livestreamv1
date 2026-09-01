@@ -5,10 +5,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { loadConfig } from "./config.js";
-import { getShow, loadShows } from "./shows.js";
+import { deleteCreatedShow, getShow, loadShows, saveCreatedShow } from "./shows.js";
 import { buildComponents } from "./components.js";
 import { WebChat } from "./chat/webChat.js";
 import { EpisodeRunner } from "./episode/runner.js";
+import {
+  compileShow,
+  errText,
+  estimateBuildCost,
+  isBuilding,
+  startBuild,
+  uploadBufferToFalStorage,
+} from "./showBuild.js";
 
 /**
  * The self-hosted Tilly livestream platform, one process:
@@ -16,6 +24,8 @@ import { EpisodeRunner } from "./episode/runner.js";
  *  - GET  /hls/*?key=...          the live HLS stream
  *  - WS   /chat?key=...           team chat; "!prompt ..." feeds the director
  *  - POST /start | /stop          episode control (Bearer CONTROL_TOKEN)
+ *  - POST /shows/create|build|delete, GET /shows/build-status, POST /uploads
+ *                                 in-app show creation (Bearer CONTROL_TOKEN)
  *  - GET  /healthz                unauthenticated liveness
  */
 const baseArgs = process.argv.slice(2);
@@ -27,9 +37,22 @@ const webChat = new WebChat();
 let runner: EpisodeRunner | null = null;
 let running = false;
 let currentShowTitle: string | null = null;
+let currentShowId: string | null = null;
+let currentShowHint: string | null = null;
 
 function statusPayload() {
-  return { type: "status", live: running, showTitle: currentShowTitle };
+  return { type: "status", live: running, showTitle: currentShowTitle, hint: currentShowHint };
+}
+
+async function readBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > maxBytes) throw new Error(`body larger than ${maxBytes} bytes`);
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
 }
 
 const sockets = new Set<WebSocket>();
@@ -80,10 +103,104 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Control plane — Bearer CONTROL_TOKEN.
-  if (url.pathname === "/start" || url.pathname === "/stop") {
+  const controlPaths = ["/start", "/stop", "/uploads", "/shows/create", "/shows/build", "/shows/build-status", "/shows/delete"];
+  if (controlPaths.includes(url.pathname)) {
     if (!bootConfig.controlToken) return send(503, { error: "CONTROL_TOKEN not configured" });
     const auth = (req.headers.authorization ?? "").replace(/^Bearer /, "");
     if (!tokenOk(auth, bootConfig.controlToken)) return send(401, { error: "unauthorized" });
+
+    // Creator file uploads (reference stills / voice clip) land in fal
+    // storage, where the video model can fetch them — this platform itself
+    // is token-gated, so it can never serve references to fal directly.
+    if (req.method === "POST" && url.pathname === "/uploads") {
+      if (!bootConfig.falKey) return send(503, { error: "FAL_KEY not configured" });
+      const kind = url.searchParams.get("kind");
+      const type = String(req.headers["content-type"] ?? "");
+      if (kind === "image" ? !type.startsWith("image/") : kind === "audio" ? !type.startsWith("audio/") : true) {
+        return send(400, { error: "kind must be image|audio and content-type must match" });
+      }
+      try {
+        const body = await readBody(req, 30 * 1024 * 1024);
+        if (body.length === 0) return send(400, { error: "empty body" });
+        const name = (url.searchParams.get("name") ?? `upload.${kind === "image" ? "png" : "m4a"}`).replace(/[^\w.-]/g, "_");
+        const uploaded = await uploadBufferToFalStorage(bootConfig.falKey, body, name, type);
+        return send(200, { url: uploaded });
+      } catch (err) {
+        return send(500, { error: errText(err) });
+      }
+    }
+
+    // Phase 1 of show creation: compile the brief into a full config (free).
+    if (req.method === "POST" && url.pathname === "/shows/create") {
+      if (!bootConfig.anthropicKey) return send(503, { error: "ANTHROPIC_API_KEY not configured" });
+      let params: { title?: string; description?: string; imageUrls?: string[]; audioUrl?: string } = {};
+      try {
+        params = JSON.parse((await readBody(req, 64 * 1024)).toString() || "{}");
+      } catch {
+        return send(400, { error: "invalid JSON body" });
+      }
+      const description = String(params.description ?? "").trim();
+      if (description.length < 20) return send(400, { error: "describe the show in at least a sentence or two" });
+      try {
+        const result = await compileShow(bootConfig.anthropicKey, {
+          description,
+          title: params.title?.trim() || undefined,
+          uploadedImageUrls: (params.imageUrls ?? []).filter((u) => typeof u === "string").slice(0, 4),
+          uploadedAudioUrl: typeof params.audioUrl === "string" && params.audioUrl ? params.audioUrl : null,
+        });
+        if (!result.show) return send(422, { refusal: result.refusal });
+        saveCreatedShow(result.show);
+        return send(200, { id: result.show.id, show: result.show, estimate: estimateBuildCost(result.show) });
+      } catch (err) {
+        return send(500, { error: errText(err) });
+      }
+    }
+
+    // Phase 2: the paid asset build (reference stills, voice seeds, fillers).
+    if (req.method === "POST" && url.pathname === "/shows/build") {
+      let params: { id?: string } = {};
+      try {
+        params = JSON.parse((await readBody(req, 4096)).toString() || "{}");
+      } catch {
+        return send(400, { error: "invalid JSON body" });
+      }
+      try {
+        const show = getShow(String(params.id ?? ""));
+        if (show.origin !== "created") return send(400, { error: "built-in shows build via `npm run fillers`" });
+        if (isBuilding(show.id)) return send(409, { error: "already building" });
+        startBuild(show, bootConfig);
+        return send(202, { building: show.id, estimate: estimateBuildCost(show) });
+      } catch (err) {
+        return send(400, { error: String(err) });
+      }
+    }
+
+    if (req.method === "GET" && url.pathname === "/shows/build-status") {
+      try {
+        const show = getShow(String(url.searchParams.get("id") ?? ""));
+        return send(200, { id: show.id, building: isBuilding(show.id), build: show.build ?? { status: "ready" } });
+      } catch (err) {
+        return send(404, { error: String(err) });
+      }
+    }
+
+    if (req.method === "POST" && url.pathname === "/shows/delete") {
+      let params: { id?: string } = {};
+      try {
+        params = JSON.parse((await readBody(req, 4096)).toString() || "{}");
+      } catch {
+        return send(400, { error: "invalid JSON body" });
+      }
+      try {
+        const show = getShow(String(params.id ?? ""));
+        if (isBuilding(show.id)) return send(409, { error: "show is building — wait for it to finish" });
+        if (running && currentShowId === show.id) return send(409, { error: "show is on air — stop the episode first" });
+        deleteCreatedShow(show);
+        return send(200, { deleted: show.id });
+      } catch (err) {
+        return send(400, { error: String(err) });
+      }
+    }
 
     if (req.method === "POST" && url.pathname === "/start") {
       if (running) return send(409, { error: "an episode is already running" });
@@ -127,6 +244,8 @@ const server = http.createServer(async (req, res) => {
       };
       running = true;
       currentShowTitle = show.title;
+      currentShowId = show.id;
+      currentShowHint = show.format.suggestionMeaning;
       broadcast(statusPayload());
       runner
         .run()
@@ -135,6 +254,8 @@ const server = http.createServer(async (req, res) => {
           running = false;
           runner = null;
           currentShowTitle = null;
+          currentShowId = null;
+          currentShowHint = null;
           broadcast(statusPayload());
         });
       return send(202, {
@@ -175,7 +296,12 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/shows") {
     return send(200, {
-      shows: [...loadShows().values()].map((s) => ({ id: s.id, title: s.title })),
+      shows: [...loadShows().values()].map((s) => ({
+        id: s.id,
+        title: s.title,
+        origin: s.origin ?? "builtin",
+        status: isBuilding(s.id) ? "building" : (s.build?.status ?? "ready"),
+      })),
     });
   }
 

@@ -36,6 +36,17 @@
   #producer select { background: #1e1a2e; color: inherit; border: 1px solid #3a3554; border-radius: 6px; padding: 5px 6px; font: inherit; max-width: 170px; }
   #producer .ghost { background: #3a3554; }
   #producer #status { color: #8f88a8; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  dialog { background: #1e1a2e; color: #eee9f5; border: 1px solid #3a3554; border-radius: 10px; padding: 18px; width: min(560px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog h3 { margin: 0 0 10px; font-size: 16px; }
+  dialog label { display: block; margin: 10px 0 4px; font-size: 13px; color: #b3a8d9; }
+  dialog input[type=text], dialog textarea { width: 100%; }
+  dialog textarea { background: #14121c; color: inherit; border: 1px solid #3a3554; border-radius: 6px; padding: 8px 10px; font: inherit; resize: vertical; }
+  dialog input[type=file] { font-size: 13px; }
+  dialog menu { display: flex; gap: 8px; margin: 16px 0 0; padding: 0; }
+  #nsStatus { margin-top: 10px; font-size: 13px; color: #b3a8d9; white-space: pre-wrap; }
+  #nsPreview { margin-top: 10px; font-size: 13px; max-height: 240px; overflow-y: auto; background: #14121c; border: 1px solid #2b2740; border-radius: 6px; padding: 10px; display: none; }
+  #nsPreview b { color: #f4a5b8; }
   @media (max-width: 720px) { main { flex-direction: column; } aside { width: 100%; height: 45%; border-left: 0; border-top: 1px solid #2b2740; } }
 </style>
 </head>
@@ -49,11 +60,31 @@
     <label>min <input id="minutes" type="number" min="1" max="60" value="10"></label>
     <label>cycles <input id="cycles" type="number" min="1" max="99" placeholder="∞"></label>
     <label title="480p, prompt-only likeness (no reference conditioning) — ~85% cheaper. For plumbing/pacing tests, not real episodes."><input id="testQ" type="checkbox"> test&nbsp;$</label>
+    <label title="Free: title-card clips instead of generated video. Use this to preview a new show's loop, prompts, and pacing at $0."><input id="dryQ" type="checkbox"> dry</label>
     <button id="startBtn">Start episode</button>
     <button id="stopBtn" class="ghost">Stop</button>
+    <button id="newShowBtn" class="ghost" title="Describe any livestream experience and the platform compiles it into a runnable show.">＋ New show</button>
     <span id="status"></span>
   </div>
 </header>
+<dialog id="newShowDlg">
+  <h3>Create a show</h3>
+  <label for="nsTitle">Title (optional)</label>
+  <input id="nsTitle" type="text" maxlength="60" placeholder="Infinite Monkeys">
+  <label for="nsDesc">Describe the livestream experience</label>
+  <textarea id="nsDesc" rows="6" maxlength="4000" placeholder="What happens on this show, who's in it, and how chat drives it. e.g. A room of monkeys each pitching AI-generated show ideas; viewers vote good/bad with !prompt, and the highest-rated monkeys get longer segments…"></textarea>
+  <label for="nsImages">Character reference images (optional — the platform generates them otherwise)</label>
+  <input id="nsImages" type="file" accept="image/*" multiple>
+  <label for="nsAudio">Voice clip (optional, 5–15s clean speech)</label>
+  <input id="nsAudio" type="file" accept="audio/*">
+  <div id="nsStatus"></div>
+  <div id="nsPreview"></div>
+  <menu>
+    <button id="nsCompile">Compile (free)</button>
+    <button id="nsBuild" class="ghost" disabled>Generate assets</button>
+    <button id="nsClose" class="ghost">Close</button>
+  </menu>
+</dialog>
 <main>
   <div id="stage">
     <div id="offline">Tilly isn't live right now.<br>This page starts playing automatically when an episode begins.</div>
@@ -63,7 +94,7 @@
   </div>
   <aside>
     <div id="messages"></div>
-    <div class="hint">Suggest a scene with <b>!prompt</b> — e.g. <i>!prompt order a coffee as a Victorian ghost</i>. Plain messages are just chat. Suggestions take a minute or two to reach the stage.</div>
+    <div class="hint" id="hint">Suggest a scene with <b>!prompt</b> — e.g. <i>!prompt order a coffee as a Victorian ghost</i>. Plain messages are just chat. Suggestions take a minute or two to reach the stage.</div>
     <form id="form">
       <input id="name" placeholder="name" maxlength="40">
       <input id="text" placeholder="say something / !prompt …" maxlength="300" autocomplete="off">
@@ -186,6 +217,14 @@
         liveBadge.textContent = msg.live ? "LIVE" : "offline";
         liveBadge.classList.toggle("on", msg.live);
         if (msg.showTitle) document.getElementById("showTitle").textContent = msg.showTitle;
+        // Each show defines what a !prompt means — surface it while live.
+        const hint = document.getElementById("hint");
+        if (msg.live && msg.hint) {
+          hint.innerHTML = "";
+          const b = document.createElement("b");
+          b.textContent = "!prompt";
+          hint.append(b, " — " + msg.hint + " Suggestions take a minute or two to reach the stage.");
+        }
         if (msg.live) {
           offline.innerHTML = "Tilly is warming up — the first scene takes about a minute to generate.<br>The show starts here automatically.";
           waitForStream();
@@ -208,18 +247,24 @@
     const panel = document.getElementById("producer");
     const status = document.getElementById("status");
     panel.style.display = "flex";
-    fetch(`/shows?key=${encodeURIComponent(key)}`)
-      .then(r => r.json())
-      .then(({ shows }) => {
+
+    async function refreshShows(selectId) {
+      try {
+        const { shows } = await (await fetch(`/shows?key=${encodeURIComponent(key)}`)).json();
         const sel = document.getElementById("showSelect");
+        const prev = selectId ?? sel.value;
+        sel.innerHTML = "";
         for (const s of shows) {
           const opt = document.createElement("option");
           opt.value = s.id;
-          opt.textContent = s.title;
+          opt.textContent = s.title + (s.status === "ready" ? "" : ` (${s.status})`);
           sel.appendChild(opt);
         }
-      })
-      .catch(() => {});
+        if (prev && shows.some(s => s.id === prev)) sel.value = prev;
+      } catch {}
+    }
+    refreshShows();
+
     const call = async (path, body) => {
       status.textContent = "…";
       try {
@@ -230,20 +275,140 @@
         });
         const data = await res.json();
         status.textContent = res.ok ? JSON.stringify(data) : `error: ${data.error ?? res.status}`;
-      } catch (err) { status.textContent = String(err); }
+        return res.ok ? data : null;
+      } catch (err) { status.textContent = String(err); return null; }
     };
     document.getElementById("startBtn").addEventListener("click", async () => {
       const minutes = Number(document.getElementById("minutes").value) || 10;
       const cycles = Number(document.getElementById("cycles").value) || undefined;
       const show = document.getElementById("showSelect").value || undefined;
       const quality = document.getElementById("testQ").checked ? "test" : undefined;
-      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}) });
+      const dryRun = document.getElementById("dryQ").checked || undefined;
+      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}), ...(dryRun ? { dryRun } : {}) });
       status.textContent = "episode starting — video appears in ~1 minute";
     });
     document.getElementById("stopBtn").addEventListener("click", () => {
-      if (confirm("End the episode? Tilly will play her sign-off and the stream will stop.")) {
+      if (confirm("End the episode? The sign-off will play and the stream will stop.")) {
         call("/stop");
       }
+    });
+
+    // ---- Create-a-show dialog: compile (free) -> preview -> build (paid). ----
+    const dlg = document.getElementById("newShowDlg");
+    const nsStatus = document.getElementById("nsStatus");
+    const nsPreview = document.getElementById("nsPreview");
+    const nsBuild = document.getElementById("nsBuild");
+    let draftId = null;
+    let pollTimer = null;
+    document.getElementById("newShowBtn").addEventListener("click", () => dlg.showModal());
+    document.getElementById("nsClose").addEventListener("click", () => {
+      dlg.close();
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    });
+
+    async function uploadFile(file, kind) {
+      const res = await fetch(`/uploads?kind=${kind}&name=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${ctl}`, "content-type": file.type || (kind === "image" ? "image/png" : "audio/mpeg") },
+        body: file,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `upload failed (${res.status})`);
+      return data.url;
+    }
+
+    function renderPreview(show, estimate) {
+      nsPreview.style.display = "block";
+      nsPreview.innerHTML = "";
+      const line = (label, text) => {
+        if (!text) return;
+        const p = document.createElement("div");
+        const b = document.createElement("b");
+        b.textContent = label + ": ";
+        p.append(b, String(text));
+        nsPreview.appendChild(p);
+      };
+      line("Title", show.title + ` (${show.id})`);
+      line("Premise", show.format.premise);
+      line("Lead", `${show.character.name} — ${show.character.visualAnchors}`);
+      for (const m of show.cast ?? []) line("Cast", `${m.name} — ${m.visualAnchors}`);
+      line("Chat", show.format.suggestionMeaning);
+      line("Chat rules", show.format.interactionRules);
+      line("Show state", show.format.stateInstructions ? show.format.stateInstructions + (show.format.persistState ? " (persists across streams)" : "") : "");
+      line("Host segments", show.format.hostRiffs === false ? "none — scenes only" : show.format.openingRiff);
+      line("Build estimate", estimate.detail);
+    }
+
+    document.getElementById("nsCompile").addEventListener("click", async (e) => {
+      e.preventDefault();
+      const description = document.getElementById("nsDesc").value.trim();
+      if (description.length < 20) { nsStatus.textContent = "Describe the show in at least a sentence or two."; return; }
+      nsBuild.disabled = true;
+      try {
+        const images = [...document.getElementById("nsImages").files];
+        const audio = document.getElementById("nsAudio").files[0];
+        const imageUrls = [];
+        for (let i = 0; i < images.length; i++) {
+          nsStatus.textContent = `Uploading image ${i + 1}/${images.length}…`;
+          imageUrls.push(await uploadFile(images[i], "image"));
+        }
+        let audioUrl = null;
+        if (audio) {
+          nsStatus.textContent = "Uploading voice clip…";
+          audioUrl = await uploadFile(audio, "audio");
+        }
+        nsStatus.textContent = "Compiling the show (free) — takes ~30s…";
+        const res = await fetch("/shows/create", {
+          method: "POST",
+          headers: { authorization: `Bearer ${ctl}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            title: document.getElementById("nsTitle").value.trim() || undefined,
+            description,
+            ...(imageUrls.length ? { imageUrls } : {}),
+            ...(audioUrl ? { audioUrl } : {}),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.refusal ? `Declined: ${data.refusal}` : (data.error ?? `HTTP ${res.status}`));
+        draftId = data.id;
+        renderPreview(data.show, data.estimate);
+        nsBuild.disabled = false;
+        nsBuild.textContent = `Generate assets (~$${data.estimate.dollars.toFixed(2)})`;
+        nsStatus.textContent = "Draft saved. It's already in the show picker — start it with the dry checkbox for a free preview, or generate its assets now for full quality.";
+        refreshShows(draftId);
+      } catch (err) { nsStatus.textContent = String(err.message ?? err); }
+    });
+
+    nsBuild.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (!draftId) return;
+      nsBuild.disabled = true;
+      const res = await fetch("/shows/build", {
+        method: "POST",
+        headers: { authorization: `Bearer ${ctl}`, "content-type": "application/json" },
+        body: JSON.stringify({ id: draftId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { nsStatus.textContent = data.error ?? `HTTP ${res.status}`; nsBuild.disabled = false; return; }
+      nsStatus.textContent = "Building assets — a few minutes…";
+      pollTimer = setInterval(async () => {
+        try {
+          const s = await (await fetch(`/shows/build-status?id=${encodeURIComponent(draftId)}`, {
+            headers: { authorization: `Bearer ${ctl}` },
+          })).json();
+          const log = s.build?.log ?? [];
+          nsStatus.textContent = `[${s.build?.status}] ${log[log.length - 1] ?? ""}`;
+          if (s.build?.status === "ready" || s.build?.status === "failed") {
+            clearInterval(pollTimer);
+            pollTimer = null;
+            nsStatus.textContent = s.build.status === "ready"
+              ? "Show is built and ready to air at full quality. 🦩"
+              : `Build failed: ${s.build.error ?? "see server logs"} — fix/retry with Generate assets.`;
+            nsBuild.disabled = s.build.status === "ready";
+            refreshShows(draftId);
+          }
+        } catch {}
+      }, 5000);
     });
   }
 
