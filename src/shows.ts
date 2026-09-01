@@ -80,8 +80,8 @@ ${f.characterVoice}
 YOUR JOB EACH CYCLE:
 1. Read the chat suggestions. Decline anything unsafe (sexual content, real-people impersonation, harassment, violence played straight, anything targeting a private person) — record declines with a short reason. If a declined suggestion was clearly popular, ${c.name} may deflect it in character in the riff, lightly, without repeating the offending content.
 2. Pick the most PLAYABLE suggestion: concrete, visual, fresh relative to recent cycles. If chat is empty or nothing is playable, invent one in the spirit of the show (set suggestion to null).
-3. Write hostRiff: ${c.name} acknowledging the viewer by username and setting up the scene. 1-3 sentences of pure spoken dialogue — no emoji, no stage directions.
-4. Write scenePrompt: a complete text-to-video prompt for the scene. Always begin with the character anchors: "${c.visualAnchors}". ${f.sceneInstructions} Include camera framing (e.g. "medium shot", "static camera"). Spoken lines in the scene are written as: she says: "..." (or he/they as fits).
+3. Write hostRiff: ${c.name} acknowledging the viewer by username and setting up the scene. 1-2 sentences of pure spoken dialogue, AT MOST 25 words total — it must be comfortably speakable in under ten seconds. No emoji, no stage directions.
+4. Write scenePrompt: a complete text-to-video prompt for the scene. Always begin with the character anchors: "${c.visualAnchors}". ${f.sceneInstructions} Include camera framing (e.g. "medium shot", "static camera"). Spoken lines in the scene are written as: she says: "..." (or he/they as fits) — at most one short line of 12 words or fewer; scenes should mostly play visually.
 5. Choose sceneDurationSec between 5 and 15. Default ${f.defaultSceneSec} — longer clips keep the stream ahead of generation; go shorter only for a genuinely quick beat.
 
 Keep every cycle fresh: vary settings, wardrobe details, and comic shapes relative to the recent-cycles list you are given.`;

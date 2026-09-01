@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
-import { ChatSource, Clip, ClipGenerator, Director } from "../types.js";
+import { ChatSource, Clip, ClipGenerator, CycleDecision, Director } from "../types.js";
 import { Config } from "../config.js";
 import { Playout } from "../playout/playout.js";
 import { EpisodeArchive } from "./archive.js";
@@ -11,6 +11,8 @@ export class EpisodeRunner {
   private playout: Playout;
   private archive: EpisodeArchive;
   private stopRequested = false;
+  /** Optional hook: called after each director decision (e.g. to tell chat). */
+  onDecision?: (decision: CycleDecision, cycle: number) => void;
 
   constructor(
     private config: Config,
@@ -116,6 +118,7 @@ export class EpisodeRunner {
       recentCycles.push(
         decision.suggestion ? decision.suggestion.text : `(invented) ${decision.scenePrompt.slice(0, 80)}`,
       );
+      this.onDecision?.(decision, thisCycle);
 
       const task = (async () => {
         const tag = `cycle-${String(thisCycle).padStart(3, "0")}`;

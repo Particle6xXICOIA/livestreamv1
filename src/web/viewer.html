@@ -24,6 +24,7 @@
   #messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
   .msg b { color: #f4a5b8; font-weight: 600; }
   .msg.prompt { background: #251f3d; border-left: 3px solid #c0264b; padding: 4px 8px; border-radius: 4px; }
+  .msg.system { color: #b3a8d9; font-style: italic; font-size: 13px; }
   form { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #2b2740; }
   input { background: #1e1a2e; color: inherit; border: 1px solid #3a3554; border-radius: 6px; padding: 8px 10px; font: inherit; }
   #name { width: 84px; }
@@ -61,7 +62,7 @@
   </div>
   <aside>
     <div id="messages"></div>
-    <div class="hint">Suggest something for Tilly to act out with <b>!prompt</b> — e.g. <i>!prompt order a coffee as a Victorian ghost</i></div>
+    <div class="hint">Suggest a scene with <b>!prompt</b> — e.g. <i>!prompt order a coffee as a Victorian ghost</i>. Plain messages are just chat. Suggestions take a minute or two to reach the stage.</div>
     <form id="form">
       <input id="name" placeholder="name" maxlength="40">
       <input id="text" placeholder="say something / !prompt …" maxlength="300" autocomplete="off">
@@ -159,6 +160,13 @@
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "chat") addMessage(msg.name, msg.text);
+      if (msg.type === "system") {
+        const div = document.createElement("div");
+        div.className = "msg system";
+        div.textContent = msg.text;
+        messages.appendChild(div);
+        messages.scrollTop = messages.scrollHeight;
+      }
       if (msg.type === "status") {
         liveBadge.textContent = msg.live ? "LIVE" : "offline";
         liveBadge.classList.toggle("on", msg.live);
