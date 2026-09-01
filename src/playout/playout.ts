@@ -21,7 +21,7 @@ export class Playout {
   private pumpDone: Promise<void> | null = null;
 
   constructor(
-    private target: { rtmpUrl: string | null; localPath: string },
+    private target: { rtmpUrl: string | null; hlsDir: string | null; localPath: string },
     private onPlay: (clip: Clip) => void,
   ) {}
 
@@ -30,9 +30,17 @@ export class Playout {
   }
 
   start(): void {
-    const output = this.target.rtmpUrl
-      ? ["-c", "copy", "-f", "flv", this.target.rtmpUrl]
-      : ["-c", "copy", "-f", "mpegts", this.target.localPath];
+    // Target precedence: self-hosted HLS > RTMP (YouTube/Twitch) > local file.
+    const output = this.target.hlsDir
+      ? [
+          "-c", "copy", "-f", "hls",
+          "-hls_time", "4", "-hls_list_size", "6",
+          "-hls_flags", "delete_segments+append_list",
+          `${this.target.hlsDir}/live.m3u8`,
+        ]
+      : this.target.rtmpUrl
+        ? ["-c", "copy", "-f", "flv", this.target.rtmpUrl]
+        : ["-c", "copy", "-f", "mpegts", this.target.localPath];
     this.proc = spawn(
       "ffmpeg",
       ["-hide_banner", "-loglevel", "error", "-re", "-f", "mpegts", "-i", "pipe:0", "-y", ...output],

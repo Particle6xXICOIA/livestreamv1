@@ -9,9 +9,18 @@ export interface Config {
   bufferTargetSec: number;
   outDir: string;
   rtmpUrl: string | null;
+  /** When set, playout writes HLS into this directory instead of RTMP/file. */
+  hlsDir: string | null;
   twitchChannel: string | null;
+  youtubeApiKey: string | null;
+  youtubeVideoId: string | null;
   falKey: string | null;
   anthropicKey: string | null;
+  /** Bearer token for the control endpoints (/start, /stop). */
+  controlToken: string | null;
+  /** Shared link token gating the viewer page, HLS, and chat. */
+  viewerToken: string | null;
+  port: number;
   tillyReferenceImageUrls: string[];
   tillyReferenceAudioUrl: string | null;
   /** Playout video settings — every clip is normalized to these before streaming. */
@@ -42,7 +51,10 @@ export function loadConfig(argv: string[]): Config {
     bufferTargetSec: Number(flags.get("buffer") ?? env.BUFFER_TARGET_SEC ?? 45),
     outDir: String(flags.get("out") ?? "out"),
     rtmpUrl: (flags.get("rtmp") as string) ?? env.RTMP_URL ?? null,
+    hlsDir: (flags.get("hls") as string) ?? null,
     twitchChannel: (flags.get("channel") as string) ?? env.TWITCH_CHANNEL ?? null,
+    youtubeApiKey: env.YOUTUBE_API_KEY ?? null,
+    youtubeVideoId: (flags.get("youtube-video") as string) ?? env.YOUTUBE_VIDEO_ID ?? null,
     falKey: env.FAL_KEY ?? null,
     anthropicKey: env.ANTHROPIC_API_KEY ?? null,
     tillyReferenceImageUrls: (env.TILLY_REFERENCE_IMAGE_URLS ?? "")
@@ -50,6 +62,9 @@ export function loadConfig(argv: string[]): Config {
       .map((s) => s.trim())
       .filter(Boolean),
     tillyReferenceAudioUrl: env.TILLY_REFERENCE_AUDIO_URL || null,
+    controlToken: env.CONTROL_TOKEN || null,
+    viewerToken: env.VIEWER_TOKEN || null,
+    port: Number(env.PORT ?? 8080),
     video: { width: 1280, height: 720, fps: 30, vBitrateK: 2500 },
   };
 }

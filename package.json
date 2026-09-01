@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "episode": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "fillers": "tsx src/makeFillers.ts"
+    "fillers": "tsx src/makeFillers.ts",
+    "serve": "tsx src/server.ts"
   },
   "repository": {
     "type": "git",
@@ -25,11 +26,13 @@
     "@anthropic-ai/sdk": "^0.122.0",
     "@fal-ai/client": "^1.10.1",
     "tmi.js": "^1.8.5",
+    "ws": "^8.21.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
     "@types/tmi.js": "^1.8.6",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }

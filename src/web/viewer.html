@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tilly Learns Improv</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14121c; color: #eee9f5; font: 15px/1.45 system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 10px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #2b2740; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .flamingo { font-size: 18px; }
+  #live { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #3a3554; }
+  #live.on { background: #c0264b; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #stage { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; min-width: 0; }
+  video { width: 100%; height: 100%; max-height: calc(100vh - 49px); object-fit: contain; }
+  #offline { color: #8f88a8; text-align: center; padding: 24px; }
+  aside { width: 320px; display: flex; flex-direction: column; border-left: 1px solid #2b2740; }
+  #messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .msg b { color: #f4a5b8; font-weight: 600; }
+  .msg.prompt { background: #251f3d; border-left: 3px solid #c0264b; padding: 4px 8px; border-radius: 4px; }
+  form { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #2b2740; }
+  input { background: #1e1a2e; color: inherit; border: 1px solid #3a3554; border-radius: 6px; padding: 8px 10px; font: inherit; }
+  #name { width: 84px; }
+  #text { flex: 1; min-width: 0; }
+  button { background: #c0264b; color: #fff; border: 0; border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer; }
+  .hint { padding: 0 12px 10px; color: #8f88a8; font-size: 12px; }
+  @media (max-width: 720px) { main { flex-direction: column; } aside { width: 100%; height: 45%; border-left: 0; border-top: 1px solid #2b2740; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="flamingo">🦩</span>
+  <h1>Tilly Learns Improv</h1>
+  <span id="live">offline</span>
+</header>
+<main>
+  <div id="stage">
+    <div id="offline">Tilly isn't live right now.<br>This page starts playing automatically when an episode begins.</div>
+    <video id="video" controls autoplay playsinline hidden></video>
+  </div>
+  <aside>
+    <div id="messages"></div>
+    <div class="hint">Suggest something for Tilly to act out with <b>!prompt</b> — e.g. <i>!prompt order a coffee as a Victorian ghost</i></div>
+    <form id="form">
+      <input id="name" placeholder="name" maxlength="40">
+      <input id="text" placeholder="say something / !prompt …" maxlength="300" autocomplete="off">
+      <button>Send</button>
+    </form>
+  </aside>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js"></script>
+<script>
+  const key = new URLSearchParams(location.search).get("key") ?? "";
+  const video = document.getElementById("video");
+  const offline = document.getElementById("offline");
+  const liveBadge = document.getElementById("live");
+  const messages = document.getElementById("messages");
+  const nameInput = document.getElementById("name");
+  const textInput = document.getElementById("text");
+  try { nameInput.value = localStorage.getItem("tilly-name") ?? ""; } catch {}
+
+  const hlsUrl = `/hls/live.m3u8?key=${encodeURIComponent(key)}`;
+  let hls = null;
+  let playerStarted = false;
+
+  function startPlayer() {
+    if (playerStarted) return;
+    playerStarted = true;
+    offline.hidden = true;
+    video.hidden = false;
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = hlsUrl;
+    } else if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({ liveSyncDurationCount: 3 });
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) { hls.destroy(); playerStarted = false; setTimeout(startPlayer, 4000); }
+      });
+    }
+    video.play().catch(() => {});
+  }
+  function stopPlayer() {
+    playerStarted = false;
+    if (hls) { hls.destroy(); hls = null; }
+    video.hidden = true;
+    video.removeAttribute("src");
+    offline.hidden = false;
+  }
+  // The playlist can lag the "live" status by a few seconds — poll until it exists.
+  async function waitForStream() {
+    for (let i = 0; i < 60 && !playerStarted; i++) {
+      try { if ((await fetch(hlsUrl, { method: "GET" })).ok) return startPlayer(); } catch {}
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  function addMessage(name, text) {
+    const div = document.createElement("div");
+    div.className = "msg" + (text.toLowerCase().startsWith("!prompt") ? " prompt" : "");
+    const b = document.createElement("b");
+    b.textContent = name + ": ";
+    div.appendChild(b);
+    div.appendChild(document.createTextNode(text));
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  let ws;
+  function connect() {
+    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/chat?key=${encodeURIComponent(key)}`);
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "chat") addMessage(msg.name, msg.text);
+      if (msg.type === "status") {
+        liveBadge.textContent = msg.live ? "LIVE" : "offline";
+        liveBadge.classList.toggle("on", msg.live);
+        if (msg.live) waitForStream(); else stopPlayer();
+      }
+    };
+    ws.onclose = () => setTimeout(connect, 3000);
+  }
+  connect();
+
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim() || "someone";
+    const text = textInput.value.trim();
+    if (!text || !ws || ws.readyState !== 1) return;
+    try { localStorage.setItem("tilly-name", name); } catch {}
+    ws.send(JSON.stringify({ name, text }));
+    textInput.value = "";
+  });
+</script>
+</body>
+</html>

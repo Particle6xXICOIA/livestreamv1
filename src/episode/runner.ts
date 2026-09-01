@@ -23,9 +23,10 @@ export class EpisodeRunner {
   ) {
     this.archive = new EpisodeArchive(config.outDir);
     this.playout = new Playout(
-      { rtmpUrl: config.rtmpUrl, localPath: path.join(this.archive.dir, "stream.ts") },
+      { rtmpUrl: config.rtmpUrl, hlsDir: config.hlsDir, localPath: path.join(this.archive.dir, "stream.ts") },
       (clip) => this.archive.log("playing", { kind: clip.kind, label: clip.label, sec: clip.durationSec }),
     );
+    if (config.hlsDir) fs.mkdirSync(config.hlsDir, { recursive: true });
   }
 
   requestStop(): void {
