@@ -3,8 +3,8 @@ import fs from "node:fs";
 import { ChatSource, Clip, ClipGenerator, CycleDecision, Director } from "../types.js";
 import { Config } from "../config.js";
 import { Playout } from "../playout/playout.js";
-import { EpisodeArchive } from "./archive.js";
-import { normalizeToTs, probeDurationSec, renderCardClip } from "../generation/ffmpeg.js";
+import { EpisodeArchive, pruneEpisodes } from "./archive.js";
+import { normalizeToTs, probeDurationSec, renderCardClip, runFfmpeg } from "../generation/ffmpeg.js";
 import {
   ShowConfig,
   loadShowState,
@@ -191,6 +191,7 @@ export class EpisodeRunner {
       await this.chat.stop();
       await this.playout.kill();
       this.archive.log("episode_end", { cycles: cycle, aborted: "stopped before going live" });
+      await this.finalizeArchive();
       return;
     }
 
@@ -206,7 +207,40 @@ export class EpisodeRunner {
     await this.chat.stop();
     await this.playout.drainAndStop();
     this.archive.log("episode_end", { cycles: cycle });
+    await this.finalizeArchive();
     console.log(`\nEpisode archive: ${this.archive.dir}`);
+  }
+
+  /**
+   * Turn the playout's continuous stream.ts recording into a downloadable
+   * episode.mp4, drop the derivable working files (normalized .ts copies of
+   * every clip), and keep the archive under its size cap. The raw generated
+   * mp4 clips stay — they're the paid outputs, reusable for recutting.
+   */
+  private async finalizeArchive(): Promise<void> {
+    const streamTs = path.join(this.archive.dir, "stream.ts");
+    const episodeMp4 = path.join(this.archive.dir, "episode.mp4");
+    try {
+      if (fs.existsSync(streamTs) && fs.statSync(streamTs).size > 0) {
+        // -c copy remux only; aac_adtstoasc converts the TS's ADTS audio
+        // framing to what the mp4 container requires.
+        await runFfmpeg(["-i", streamTs, "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", episodeMp4]);
+        const durationSec = await probeDurationSec(episodeMp4);
+        fs.rmSync(streamTs, { force: true });
+        this.archive.log("recording_saved", {
+          path: episodeMp4,
+          durationSec,
+          sizeMB: Math.round(fs.statSync(episodeMp4).size / 1e6),
+        });
+      }
+      for (const f of fs.readdirSync(this.archive.clipsDir)) {
+        if (f.endsWith(".ts")) fs.rmSync(path.join(this.archive.clipsDir, f), { force: true });
+      }
+      const deleted = pruneEpisodes(this.config.outDir, this.config.archiveMaxGB * 1e9, this.archive.dir);
+      if (deleted.length) this.archive.log("archive_pruned", { deleted });
+    } catch (err) {
+      this.archive.log("archive_error", { error: String(err) });
+    }
   }
 
   async abort(): Promise<void> {

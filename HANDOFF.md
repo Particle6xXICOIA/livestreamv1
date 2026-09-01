@@ -95,9 +95,13 @@ Created shows never fall back to the env-level Tilly references — missing
 references generate prompt-only rather than borrowing her likeness.
 
 **Durability**: created shows, their assets, and persistent state live under
-`DATA_DIR` (default `data/`, gitignored). The container filesystem is wiped
-on every redeploy, so attach a Railway volume to `tilly-platform` (mount at
-`/data`) and set `DATA_DIR=/data` to keep created shows across deploys.
+`DATA_DIR` (default `data/`, gitignored). In production this is DONE (1 Sep
+2026): Railway volume `tilly-data` is mounted at `/data` on `tilly-platform`
+with `DATA_DIR=/data`, so created shows survive redeploys. The volume is
+tied to that service — deleting the volume/service loses them; there is no
+independent backup yet (a cron rsync to R2 is the cheap upgrade if the
+library grows precious). Episode recordings also live here (see "Secrets &
+env" section above), size-capped by `ARCHIVE_MAX_GB`.
 
 ## Secrets & env
 
@@ -106,8 +110,15 @@ on every redeploy, so attach a Railway volume to `tilly-platform` (mount at
 service variables AND the Claude Code cloud environment (so fresh Claude
 sessions can run real generation). Never commit values; this repo is public.
 
-Episode records land in `out/episodes/<timestamp>/` (log.jsonl + clips) on
-the container — **ephemeral, lost on redeploy**; export anything worth keeping.
+Every episode is recorded: playout tees the exact aired stream to disk and
+the runner finalizes it to `episode.mp4` (plus `log.jsonl` and the raw
+generated clip mp4s) under `DATA_DIR/episodes/<timestamp>/` — on the Railway
+volume in production, so recordings survive redeploys. Producer page →
+**Episodes** lists them with watch/download/log links (`GET /episodes`,
+`GET /episodes/<id>/episode.mp4`, viewer-token gated, seekable via Range).
+The archive is capped at `ARCHIVE_MAX_GB` (default 4): oldest episodes are
+pruned after each show, so download anything precious — or raise the cap
+and grow the volume as the library builds.
 
 ## Hard-won fixes — do not re-break
 
@@ -140,18 +151,25 @@ the container — **ephemeral, lost on redeploy**; export anything worth keeping
   addition.
 - Generate filler libraries for `tilly-agony-aunt` and `tilly-interviews`;
   add the first non-Tilly character.
+- **fal balance is EXHAUSTED (as of 1 Sep 2026)** — the account is locked,
+  so uploads, asset builds, and real-quality episodes all fail with 403
+  "User is locked" until Mark tops up at fal.ai/dashboard/billing. Compiling
+  shows and dry runs still work (they only need the Anthropic key).
 - In-app creation: the flux reference-still endpoint (`fal-ai/flux/dev`) has
   not been exercised end-to-end yet (fal balance was exhausted at build
   time) — the first real asset build verifies it; a failure lands in the
-  build log and the build is retryable.
-- Attach the Railway volume for `DATA_DIR` (see "Creating shows in-app") —
-  until then created shows vanish on redeploy.
+  build log and the build is retryable. Everything else was validated with
+  local dry runs of two representative created shows (multi-cast voting;
+  riff-less persistent journey) and a browser pass over the producer UI.
 
 ## Working on this with Claude
 
 Start sessions on `Particle6xXICOIA/livestreamv1` (sessions inherit the
-environment's keys). Convention: feature branch
-`claude/livestream-tilly-prototype-pb3gum`, PR per change, merge auto-deploys.
+environment's keys — note ANTHROPIC_API_KEY is Railway-only, not in the
+Claude environment, so test the compiler against the deployed platform).
+Convention: one `claude/*` feature branch per session, PR per change, merge
+auto-deploys. Railway infra changes (volumes, variables) can be made from
+sessions via the Railway MCP tools.
 Verify player-facing changes in a real browser — CI-container Chromium can't
 decode H.264. Dry runs are free; use them for everything that isn't about
 picture quality.

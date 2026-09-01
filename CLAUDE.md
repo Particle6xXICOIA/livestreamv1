@@ -13,7 +13,8 @@ Essentials:
   reference images + a voice clip hosted on fal storage. Shows created in-app
   (producer "New show" → Claude compiles the description) live under
   `DATA_DIR` (default `data/`, gitignored) with their assets and persistent
-  state — durable only once a Railway volume backs `DATA_DIR`.
+  state — durable in production via the Railway volume at `/data`
+  (`DATA_DIR=/data`).
 - Generation: MiniMax H3 Max via fal (`reference-to-video`, flat $0.08/s).
   Dry runs (`--dry-run`) are free — use them for anything that isn't picture
   quality. `--test-quality` = cheap 480p prompt-only generation.
