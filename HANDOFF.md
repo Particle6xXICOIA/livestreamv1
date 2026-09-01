@@ -10,12 +10,33 @@ Live Handoff") owned by Mark — tokens are NEVER committed here (public repo).
 - **Platform**: `https://tilly-platform-production.up.railway.app`
   - Viewer page: `/?key=<VIEWER_TOKEN>` (watch, chat, `!prompt` suggestions)
   - Producer controls: append `&ctl=<CONTROL_TOKEN>` (Start/Stop, show picker,
-    minutes, cycle cap, test-$ toggle)
+    minutes, cycle cap, $ cap, test-$/dry toggles, ＋ New show, Episodes,
+    live ~$ spend readout)
   - Both tokens: Railway → tilly-livestream → tilly-platform → Variables
 - **Hosting**: Railway project `tilly-livestream`, service `tilly-platform`
   (Dockerfile build, `/healthz` healthcheck). Merge to `main` auto-deploys.
 - **Spend**: fal.ai billing dashboard — video generation is the only
   meaningful cost.
+
+## Where things stand (end of 1 Sep 2026 session)
+
+Deployed to production (PRs #14–#17, all merged, deploys green): in-app show
+creation, the durable `tilly-data` volume at `/data`, episode recordings with
+the producer Episodes dialog, the $5-per-episode spend cap, and optional
+consistency (stills/voices) on asset builds. Pending, in order:
+
+1. **Mark tops up fal** (account locked: exhausted balance after an ~$80 day
+   — see the spend-cap section for what happened). Until then: compiling
+   shows and dry runs work; uploads, asset builds, and paid episodes 403.
+2. **First real asset build** — Mark compiled an "Infinite Monkeys" draft on
+   the production volume (host monkey + six pitchers, vote leaderboard). It
+   awaits its build; this also exercises `fal-ai/flux/dev` for the first
+   time. The consistency checkboxes appear in the dialog only after a
+   Compile, so for this existing draft either build via
+   `POST /shows/build {"id":..., "stills":bool, "voices":bool}` or
+   re-compile and delete the old draft.
+3. **First real created-show episode** — remember $5 cap ≈ ~1 min full
+   quality; raise "$ cap" deliberately for a longer show.
 
 ## The pipeline
 
