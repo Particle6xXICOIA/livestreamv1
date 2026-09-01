@@ -67,7 +67,8 @@ const server = http.createServer(async (req, res) => {
         return send(400, { error: "invalid JSON body" });
       }
       const argv = [...baseArgs];
-      if (params.minutes) argv.push("--minutes", String(params.minutes));
+      // Airtime is linear inference spend — default short unless asked for more.
+      argv.push("--minutes", String(params.minutes || 10));
       if (params.cycles) argv.push("--cycles", String(params.cycles));
       if (params.dryRun) argv.push("--dry-run");
       const config = loadConfig(argv);

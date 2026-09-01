@@ -56,7 +56,11 @@ show platform in one process:
 - **Viewer page** at `/?key=<VIEWER_TOKEN>` — live player plus team chat;
   suggest scenes with `!prompt <idea>`. Only people with the link token can
   watch; chat messages feed the show director directly.
-- **Episode control** with `CONTROL_TOKEN`:
+- **Producer controls in the page**: open the viewer link with
+  `&ctl=<CONTROL_TOKEN>` appended and Start/Stop buttons appear in the header
+  (minutes + optional cycle cap). Episodes default to 10 minutes; Stop ends
+  one early after the closing segment.
+- **Episode control** from the command line with `CONTROL_TOKEN`:
 
   ```bash
   curl -X POST https://<host>/start -H "Authorization: Bearer $CONTROL_TOKEN" \
