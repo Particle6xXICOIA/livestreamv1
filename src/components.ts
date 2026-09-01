@@ -48,6 +48,7 @@ export function buildComponents(
           show,
           { imageUrls: config.tillyReferenceImageUrls, audioUrl: config.tillyReferenceAudioUrl },
           config.video,
+          config.testQuality,
         )
       : warnStub("generator", "FAL_KEY not set", new StubGenerator(config.video));
 

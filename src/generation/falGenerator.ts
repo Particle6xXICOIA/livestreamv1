@@ -28,6 +28,8 @@ export class FalH3MaxGenerator implements ClipGenerator {
     private show: ShowConfig,
     fallbackRefs: { imageUrls: string[]; audioUrl: string | null },
     private _video: Config["video"],
+    /** Cheap test generation: anchors-only text-to-video at 480p. */
+    private testQuality = false,
   ) {
     fal.config({ credentials: falKey });
     // Show-level references win; env-level references are the fallback.
@@ -38,7 +40,7 @@ export class FalH3MaxGenerator implements ClipGenerator {
   }
 
   private get useReferences(): boolean {
-    return this.referenceImageUrls.length > 0;
+    return !this.testQuality && this.referenceImageUrls.length > 0;
   }
 
   private referencePreamble(): string {
@@ -79,7 +81,7 @@ export class FalH3MaxGenerator implements ClipGenerator {
           prompt,
           prompt_expansion_mode: "balanced",
           duration,
-          resolution: "768P",
+          resolution: this.testQuality ? "480P" : "768P",
           aspect_ratio: "16:9",
         },
       })) as { data: { video: { url: string } } };
