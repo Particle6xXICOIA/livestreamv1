@@ -1,5 +1,4 @@
 import { spawn, ChildProcess } from "node:child_process";
-import fs from "node:fs";
 import { Clip } from "../types.js";
 
 /**
@@ -34,7 +33,8 @@ export class Playout {
     const output = this.target.hlsDir
       ? [
           "-c", "copy", "-f", "hls",
-          "-hls_time", "4", "-hls_list_size", "6",
+          "-hls_time", "4", "-hls_list_size", "10",
+          "-hls_delete_threshold", "8",
           "-hls_flags", "delete_segments+append_list",
           `${this.target.hlsDir}/live.m3u8`,
         ]
@@ -83,7 +83,7 @@ export class Playout {
       }
       this.onPlay(clip);
       try {
-        await this.writeClip(clip.tsPath);
+        await this.writeClip(clip);
       } catch (err) {
         if (this.running) throw err;
         break; // stream closed during shutdown
@@ -99,23 +99,52 @@ export class Playout {
     return clip;
   }
 
-  private writeClip(tsPath: string): Promise<void> {
+  /** Running timestamp offset so the concatenated stream is monotonic. */
+  private tsOffsetSec = 0;
+
+  /**
+   * Every normalized clip's timestamps start near zero, so raw byte
+   * concatenation produces a timestamp reset at every clip boundary —
+   * "Non-monotonic DTS" in the muxer and stutters/stalls in players.
+   * Each clip is therefore remuxed on the way in (-c copy, cheap) with a
+   * running -output_ts_offset, making the combined stream continuous.
+   */
+  private writeClip(clip: Clip): Promise<void> {
     return new Promise((resolve, reject) => {
       const stdin = this.proc?.stdin;
       if (!stdin || stdin.destroyed) return reject(new Error("playout stdin closed"));
-      const rs = fs.createReadStream(tsPath);
+      const remux = spawn(
+        "ffmpeg",
+        [
+          "-hide_banner", "-loglevel", "error",
+          "-i", clip.tsPath,
+          "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
+          "-output_ts_offset", this.tsOffsetSec.toFixed(3),
+          "-f", "mpegts", "pipe:1",
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let stderr = "";
+      remux.stderr.on("data", (d) => (stderr += d.toString()));
       const onStdinError = (err: Error) => {
-        rs.destroy();
+        remux.kill("SIGKILL");
         reject(err);
       };
-      const done = (err?: Error) => {
-        stdin.off("error", onStdinError);
-        err ? reject(err) : resolve();
-      };
       stdin.once("error", onStdinError);
-      rs.pipe(stdin, { end: false });
-      rs.on("end", () => done());
-      rs.on("error", (err) => done(err));
+      remux.stdout.pipe(stdin, { end: false });
+      remux.on("error", (err) => {
+        stdin.off("error", onStdinError);
+        reject(err);
+      });
+      remux.on("close", (code) => {
+        stdin.off("error", onStdinError);
+        if (code === 0) {
+          this.tsOffsetSec += clip.durationSec;
+          resolve();
+        } else {
+          reject(new Error(`clip remux exited ${code}: ${stderr.slice(-400)}`));
+        }
+      });
     });
   }
 

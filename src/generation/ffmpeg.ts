@@ -37,6 +37,7 @@ export async function normalizeToTs(inputPath: string, video: Config["video"]): 
     "-c:v", "libx264", "-preset", "veryfast", "-b:v", `${video.vBitrateK}k`,
     "-x264-params", `keyint=${video.fps * 2}:min-keyint=${video.fps * 2}`,
     "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "128k",
+    "-muxdelay", "0", "-muxpreload", "0",
     "-f", "mpegts", tsPath,
   );
   await runFfmpeg(args);
