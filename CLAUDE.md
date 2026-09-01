@@ -20,12 +20,15 @@ Essentials:
   quality. `--test-quality` = cheap 480p prompt-only generation.
 - Every episode has a hard spend cap (default $5, `EPISODE_BUDGET_USD` /
   `{"budget": N}`) enforced by `SpendMeter` + a pre-flight gate in the
-  runner — never weaken it; it exists because an uncapped default Start
-  cost ~$48.
+  runner, and every UTC day has one too (default $25, `DAILY_BUDGET_USD`,
+  ledger under `DATA_DIR/spend/`) — never weaken either; they exist because
+  an uncapped default Start cost ~$48 and a day of Starts cost ~$80.
 - Secrets live in Railway variables and the Claude Code environment — never in
   this repo (it is public). Tokens for the live platform are in Railway vars.
 - Playout correctness is delicate: clips must enter the stream with continuous
   timestamps, HLS segments authorize via cookie, and the player attaches only
   after a segment runway. Details + rationale in HANDOFF.md §"Hard-won fixes".
-- Validate `npx tsc --noEmit` + a dry-run episode before pushing; verify
-  player-facing changes in a real browser (CI Chromium lacks H.264).
+- Validate `npx tsc --noEmit` + `npm test` (unit + ffmpeg-backed runner
+  integration tests, ~75s, $0) + a dry-run episode before pushing; GitHub
+  Actions runs the same on every PR. Verify player-facing changes in a real
+  browser (CI Chromium lacks H.264).

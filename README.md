@@ -46,10 +46,19 @@ Requires Node 20+ and ffmpeg on PATH.
 | `TILLY_REFERENCE_AUDIO_URL` | Voice consistency (5–15s reference clip) |
 | `MAX_CONCURRENT_CYCLES` | Cycles generating in parallel (default 2; also `--concurrency N`) |
 | `BUFFER_TARGET_SEC` | Content to keep buffered ahead of air (default 45; also `--buffer N`) |
+| `EPISODE_BUDGET_USD` | Estimated-spend cap per episode (default 5; `--budget N`; 0 = uncapped) |
+| `DAILY_BUDGET_USD` | Estimated-spend cap per UTC day across episodes (default 25; 0 = uncapped) |
+| `ARCHIVE_MAX_GB` / `MIN_FREE_GB` | Recording archive size cap (default 2) and disk headroom required to start (default 1) |
+| `GENERATION_TIMEOUT_SEC` / `DIRECTOR_TIMEOUT_SEC` | Abandon a cycle whose generation (240) or director call (90) hangs |
 
 Any component without its key runs as a stub, so the loop is testable at every
 level of fidelity. `Ctrl-C` ends an episode gracefully (closing segment, clean
-stream shutdown); pressing it twice force-quits.
+stream shutdown); pressing it twice hard-stops (cuts the stream now, keeps the
+recording).
+
+`npm test` runs the unit tests plus runner integration tests (real ffmpeg
+playout with fake chat/director/generator, ~75s, zero spend); `npm run
+test:unit` is the sub-second subset. CI runs both plus a dry-run episode.
 
 Generate a show's filler library once with `npm run fillers -- --show <id>` —
 "vamping on set" clips plus cached opening/closing segments written to
@@ -77,6 +86,9 @@ show platform in one process:
   curl -X POST https://<host>/stop  -H "Authorization: Bearer $CONTROL_TOKEN"
   ```
 
-  `/start` also accepts `cycles`, `dryRun`, and `"output": "rtmp"` (push to
-  `RTMP_URL` — YouTube/Twitch — instead of the built-in platform; pair it
-  with `YOUTUBE_API_KEY` + `YOUTUBE_VIDEO_ID` to read that broadcast's chat).
+  `/start` also accepts `cycles`, `dryRun`, `budget`, and `"output": "rtmp"`
+  (push to `RTMP_URL` — YouTube/Twitch — instead of the built-in platform;
+  pair it with `YOUTUBE_API_KEY` + `YOUTUBE_VIDEO_ID` to read that
+  broadcast's chat). `/stop` is graceful; `/stop` with `{"hard": true}` cuts
+  the stream immediately. `/start` refuses with 402 once the daily cap is
+  spent and 507 when the archive disk lacks headroom for a recording.
