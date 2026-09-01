@@ -3,12 +3,17 @@ import { Clip } from "../types.js";
 
 /**
  * Continuous playout: one persistent ffmpeg process reads normalized MPEG-TS
- * from stdin (paced to realtime with -re) and pushes to RTMP, or to a local
- * file when no RTMP URL is configured. Because every clip is normalized to
- * identical codec parameters, clips are byte-concatenated straight into the
- * pipe; pipe backpressure is what paces the producer loop.
+ * from stdin (paced to realtime with -re) and pushes to HLS/RTMP, or to a
+ * local file when neither is configured. Because every clip is normalized to
+ * identical codec parameters, clips are remuxed straight into the pipe with a
+ * running timestamp offset; pipe backpressure is what paces the producer.
  *
  * If the queue runs dry, filler clips play so the stream never freezes.
+ *
+ * Failure model: a remux error or the ffmpeg process dying is reported via
+ * `onError`, the playout marks itself failed and stops pumping — it never
+ * surfaces as an unhandled rejection (which would take the whole platform
+ * process down mid-show). The runner decides how to end the episode.
  */
 export class Playout {
   private proc: ChildProcess | null = null;
@@ -18,6 +23,9 @@ export class Playout {
   private running = false;
   private stopping = false;
   private pumpDone: Promise<void> | null = null;
+  private _error: Error | null = null;
+  /** Called once if playout dies mid-show. */
+  onError?: (err: Error) => void;
 
   constructor(
     private target: { rtmpUrl: string | null; hlsDir: string | null; localPath: string },
@@ -26,6 +34,15 @@ export class Playout {
 
   setFillers(fillers: Clip[]) {
     this.fillers = fillers;
+  }
+
+  /** Set when playout has died; the episode cannot continue airing. */
+  get failed(): boolean {
+    return this._error !== null;
+  }
+
+  get error(): Error | null {
+    return this._error;
   }
 
   start(): void {
@@ -47,33 +64,47 @@ export class Playout {
     // when the show ends. -c copy: no extra encode cost.
     const record = ["-c", "copy", "-f", "mpegts", this.target.localPath];
     const output = primary ? [...primary, ...record] : record;
-    this.proc = spawn(
+    const proc = spawn(
       "ffmpeg",
       ["-hide_banner", "-loglevel", "error", "-re", "-f", "mpegts", "-i", "pipe:0", "-y", ...output],
-      { stdio: ["pipe", "ignore", "inherit"] },
+      { stdio: ["pipe", "ignore", "pipe"] },
     );
+    this.proc = proc;
+    let stderr = "";
+    proc.stderr?.on("data", (d) => {
+      stderr = (stderr + d.toString()).slice(-2000);
+      process.stderr.write(d);
+    });
+    // stdin errors (EPIPE when ffmpeg dies) must have a listener or Node
+    // throws them as uncaught exceptions.
+    proc.stdin?.on("error", (err) => this.fail(new Error(`playout stdin: ${err.message}`)));
+    proc.on("error", (err) => this.fail(new Error(`playout ffmpeg failed to start: ${err.message}`)));
+    proc.on("exit", (code, signal) => {
+      if (this.running && !this.stopping) {
+        this.fail(new Error(`playout ffmpeg exited unexpectedly (${signal ?? code}): ${stderr.slice(-400)}`));
+      }
+    });
     this.running = true;
-    this.pumpDone = this.pump();
+    this.pumpDone = this.pump().catch((err) => this.fail(err instanceof Error ? err : new Error(String(err))));
+  }
+
+  private fail(err: Error): void {
+    if (this._error || !this.running) return;
+    this._error = err;
+    this.running = false;
+    this.stopping = true;
+    this.proc?.stdin?.destroy();
+    this.proc?.kill("SIGTERM");
+    this.onError?.(err);
   }
 
   enqueue(clip: Clip): void {
     this.queue.push(clip);
   }
 
-  get queueLength(): number {
-    return this.queue.length;
-  }
-
   /** Seconds of content waiting in the queue (excludes the clip currently airing). */
   get queuedSeconds(): number {
     return this.queue.reduce((s, c) => s + c.durationSec, 0);
-  }
-
-  /** Producer pacing: resolves once the queue is at or below `n` clips. */
-  async waitForQueueBelow(n: number): Promise<void> {
-    while (this.running && this.queue.length > n) {
-      await sleep(500);
-    }
   }
 
   private async pump(): Promise<void> {
@@ -159,18 +190,30 @@ export class Playout {
     this.stopping = true;
     await this.pumpDone;
     this.running = false;
-    await new Promise<void>((resolve) => {
-      if (!this.proc || this.proc.exitCode !== null) return resolve();
-      this.proc.on("close", () => resolve());
-    });
+    await this.waitForExit(15_000);
   }
 
-  /** Immediate abort (SIGINT path). */
+  /** Immediate abort (hard stop / SIGINT path). The recording is left as-is. */
   async kill(): Promise<void> {
     this.running = false;
     this.stopping = true;
     this.proc?.stdin?.destroy();
     this.proc?.kill("SIGTERM");
+    await this.waitForExit(5_000);
+  }
+
+  private waitForExit(graceMs: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const proc = this.proc;
+      if (!proc || proc.exitCode !== null || proc.signalCode !== null) return resolve();
+      const timer = setTimeout(() => {
+        proc.kill("SIGKILL");
+      }, graceMs);
+      proc.on("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 }
 

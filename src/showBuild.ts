@@ -6,7 +6,8 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { Config } from "./config.js";
 import { runFfmpeg } from "./generation/ffmpeg.js";
-import { FalH3MaxGenerator } from "./generation/falGenerator.js";
+import { FILLER_CLIP_SEC, FalH3MaxGenerator, hostClipDurationSec } from "./generation/falGenerator.js";
+import { USD_PER_SEC_FULL } from "./generation/spend.js";
 import {
   CastMember,
   DATA_DIR,
@@ -227,17 +228,23 @@ export function estimateBuildCost(
   const stills = members.filter((m) => !m.referenceImageUrls?.length && m.referenceImagePrompt).length;
   // Voice seeding needs a reference still to condition on, so skipping
   // stills also forgoes voice seeds for members without uploaded images.
-  const voices = members.filter(
+  const voiceSeeds = members.filter(
     (m) =>
       m.speaks && !m.referenceAudioUrl && m.voiceSeedLine &&
       (m.referenceImageUrls?.length || opts.stills),
-  ).length;
+  );
+  const voices = voiceSeeds.length;
+  // Voice seeds are sized to their line exactly like host clips are.
+  const voiceSec = voiceSeeds.reduce((s, m) => s + hostClipDurationSec(m.voiceSeedLine!), 0);
+  const riffSec = show.format.hostRiffs === false
+    ? 0
+    : hostClipDurationSec(show.format.openingRiff) + hostClipDurationSec(show.format.closingRiff);
   const riffClips = show.format.hostRiffs === false ? 0 : 2; // cached opening + closing
   const fillers = show.format.fillerPrompts.length;
   const round = (n: number) => Math.round(n * 100) / 100;
   const usdStills = opts.stills ? round(stills * 0.03) : 0;
-  const usdVoices = opts.voices ? round(voices * 6 * 0.08) : 0;
-  const usdClips = round((riffClips + fillers) * 8 * 0.08);
+  const usdVoices = opts.voices ? round(voiceSec * USD_PER_SEC_FULL) : 0;
+  const usdClips = round((riffSec + fillers * FILLER_CLIP_SEC) * USD_PER_SEC_FULL);
   const dollars = round(usdStills + usdVoices + usdClips);
   return {
     dollars,
@@ -314,8 +321,7 @@ async function buildShowAssets(show: ShowConfig, config: Config, opts: BuildOpti
       if (!member.referenceImageUrls?.length) continue;
       note(`seeding voice for ${member.name}…`);
       try {
-        const words = member.voiceSeedLine.trim().split(/\s+/).length;
-        const duration = Math.min(15, Math.max(6, Math.ceil(words / 2.3) + 2));
+        const duration = hostClipDurationSec(member.voiceSeedLine);
         const result = (await fal.subscribe("minimax/h3-max/reference-to-video", {
           input: {
             prompt:
@@ -346,19 +352,14 @@ async function buildShowAssets(show: ShowConfig, config: Config, opts: BuildOpti
 
     // 3. Filler library + cached opening/closing, exactly like `npm run
     // fillers` does for built-in shows, now that references exist.
-    const generator = new FalH3MaxGenerator(
-      config.falKey!,
-      show,
-      { imageUrls: [], audioUrl: null },
-      config.video,
-    );
+    const generator = new FalH3MaxGenerator(config.falKey!, show, { imageUrls: [], audioUrl: null });
     const dirs = showAssetDirs(show);
     fs.mkdirSync(dirs.fallback, { recursive: true });
     for (let i = 0; i < show.format.fillerPrompts.length; i++) {
       const tag = `filler-${String(i + 1).padStart(2, "0")}`;
       if (fs.existsSync(path.join(dirs.fallback, `${tag}-scene.mp4`))) continue;
       note(`generating ${tag}…`);
-      await generator.generateSceneClip(show.format.fillerPrompts[i], 8, dirs.fallback, tag);
+      await generator.generateSceneClip(show.format.fillerPrompts[i], FILLER_CLIP_SEC, dirs.fallback, tag);
     }
     fs.mkdirSync(dirs.segments, { recursive: true });
     for (const [tag, riff] of [

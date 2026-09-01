@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tilly Learns Improv</title>
+<title>Tilly Live</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -35,7 +35,9 @@
   #producer input { width: 56px; padding: 4px 6px; }
   #producer select { background: #1e1a2e; color: inherit; border: 1px solid #3a3554; border-radius: 6px; padding: 5px 6px; font: inherit; max-width: 170px; }
   #producer .ghost { background: #3a3554; }
-  #producer #spend { color: #f4c95d; font-variant-numeric: tabular-nums; }
+  #producer #spend, #producer #epstat { color: #f4c95d; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #producer #epstat { color: #b3a8d9; }
+  #producer #status.err { color: #ff8a9e; }
   #producer #status { color: #8f88a8; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   dialog { background: #1e1a2e; color: #eee9f5; border: 1px solid #3a3554; border-radius: 10px; padding: 18px; width: min(560px, 92vw); }
   dialog::backdrop { background: rgba(0,0,0,.6); }
@@ -64,8 +66,10 @@
     <label title="480p, prompt-only likeness (no reference conditioning) — ~85% cheaper. For plumbing/pacing tests, not real episodes."><input id="testQ" type="checkbox"> test&nbsp;$</label>
     <label title="Free: title-card clips instead of generated video. Use this to preview a new show's loop, prompts, and pacing at $0."><input id="dryQ" type="checkbox"> dry</label>
     <button id="startBtn">Start episode</button>
-    <button id="stopBtn" class="ghost">Stop</button>
-    <span id="spend" title="Estimated generation spend this episode"></span>
+    <button id="stopBtn" class="ghost" title="Graceful: buffered and in-flight content airs, then the sign-off (1–2 minutes).">Stop</button>
+    <button id="hardStopBtn" class="ghost" title="Immediate: abandon in-flight generation and cut the stream now. The recording is kept.">Hard stop</button>
+    <span id="spend" title="Estimated generation spend this episode · remaining today under the daily cap"></span>
+    <span id="epstat" title="cycle · seconds buffered ahead of air · cycles generating"></span>
     <button id="newShowBtn" class="ghost" title="Describe any livestream experience and the platform compiles it into a runnable show.">＋ New show</button>
     <button id="episodesBtn" class="ghost" title="Recordings of past episodes — watch or download.">Episodes</button>
     <span id="status"></span>
@@ -102,7 +106,7 @@
 </dialog>
 <main>
   <div id="stage">
-    <div id="offline">Tilly isn't live right now.<br>This page starts playing automatically when an episode begins.</div>
+    <div id="offline">Nobody's live right now.<br>This page starts playing automatically when an episode begins.</div>
     <video id="video" controls autoplay playsinline muted hidden></video>
     <button id="tapPlayBtn" class="overlay">▶ &nbsp;Tap to watch</button>
     <button id="unmuteBtn" class="overlay">🔊 Tap for sound</button>
@@ -232,6 +236,8 @@
         liveBadge.textContent = msg.live ? "LIVE" : "offline";
         liveBadge.classList.toggle("on", msg.live);
         if (msg.showTitle) document.getElementById("showTitle").textContent = msg.showTitle;
+        // Copy names whoever is actually hosting — created shows aren't Tilly.
+        const who = msg.characterName || "The show";
         // Each show defines what a !prompt means — surface it while live.
         const hint = document.getElementById("hint");
         if (msg.live && msg.hint) {
@@ -241,16 +247,37 @@
           hint.append(b, " — " + msg.hint + " Suggestions take a minute or two to reach the stage.");
         }
         if (msg.live) {
-          offline.innerHTML = "Tilly is warming up — the first scene takes about a minute to generate.<br>The show starts here automatically.";
+          offline.innerHTML = "";
+          offline.append(`${who} is warming up — the first scene takes about a minute to generate.`, document.createElement("br"), "The show starts here automatically.");
           waitForStream();
         } else {
-          offline.innerHTML = "Tilly isn't live right now.<br>This page starts playing automatically when an episode begins.";
+          offline.innerHTML = "Nobody's live right now.<br>This page starts playing automatically when an episode begins.";
           stopPlayer();
         }
         const startBtn = document.getElementById("startBtn");
         if (startBtn) startBtn.disabled = msg.live;
         const spend = document.getElementById("spend");
-        if (spend) spend.textContent = msg.live && msg.spentUsd != null ? `~$${msg.spentUsd.toFixed(2)}` : "";
+        if (spend) {
+          const parts = [];
+          if (msg.live && msg.spentUsd != null) parts.push(`~$${msg.spentUsd.toFixed(2)}`);
+          if (msg.daily && msg.daily.remainingUsd != null) parts.push(`$${msg.daily.remainingUsd.toFixed(2)} left today`);
+          spend.textContent = parts.join(" · ");
+        }
+        const epstat = document.getElementById("epstat");
+        if (epstat) {
+          const ep = msg.live ? msg.episode : null;
+          epstat.textContent = ep
+            ? `c${ep.cycle} · ${ep.bufferedSec}s buffered · ${ep.inFlight} generating` +
+              (ep.stopping !== "none" ? ` · ${ep.stopping} stop` : "")
+            : "";
+          const status = document.getElementById("status");
+          if (status && ep && ep.lastError && status.dataset.err !== ep.lastError) {
+            status.dataset.err = ep.lastError;
+            status.textContent = `⚠ ${ep.lastError}`;
+            status.classList.add("err");
+            status.title = ep.lastError;
+          }
+        }
       }
     };
     ws.onclose = () => setTimeout(connect, 3000);
@@ -259,7 +286,20 @@
 
   // Producer controls appear only when the URL carries the control token
   // (?ctl=CONTROL_TOKEN). Anyone with just the viewer key sees none of this.
-  const ctl = new URLSearchParams(location.search).get("ctl");
+  // The token is moved out of the address bar into sessionStorage on first
+  // load so it doesn't sit in history/screenshots; the ?ctl= bookmark still
+  // works and this tab stays a producer for its lifetime.
+  let ctl = new URLSearchParams(location.search).get("ctl");
+  try {
+    if (ctl) {
+      sessionStorage.setItem("tilly-ctl", ctl);
+      const clean = new URL(location.href);
+      clean.searchParams.delete("ctl");
+      history.replaceState(null, "", clean);
+    } else {
+      ctl = sessionStorage.getItem("tilly-ctl");
+    }
+  } catch {}
   if (ctl) {
     const panel = document.getElementById("producer");
     const status = document.getElementById("status");
@@ -284,6 +324,8 @@
 
     const call = async (path, body) => {
       status.textContent = "…";
+      status.classList.remove("err");
+      delete status.dataset.err;
       try {
         const res = await fetch(path, {
           method: "POST",
@@ -292,8 +334,10 @@
         });
         const data = await res.json();
         status.textContent = res.ok ? JSON.stringify(data) : `error: ${data.error ?? res.status}`;
+        status.title = status.textContent;
+        status.classList.toggle("err", !res.ok);
         return res.ok ? data : null;
-      } catch (err) { status.textContent = String(err); return null; }
+      } catch (err) { status.textContent = String(err); status.classList.add("err"); return null; }
     };
     document.getElementById("startBtn").addEventListener("click", async () => {
       const minutes = Number(document.getElementById("minutes").value) || 10;
@@ -304,12 +348,17 @@
       // An emptied field falls back to the server's $5 default — never to uncapped.
       const budgetRaw = document.getElementById("budget").value.trim();
       const budget = budgetRaw === "" ? undefined : Math.max(0, Number(budgetRaw));
-      await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}), ...(dryRun ? { dryRun } : {}), ...(budget !== undefined ? { budget } : {}) });
-      status.textContent = "episode starting — video appears in ~1 minute";
+      const started = await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}), ...(dryRun ? { dryRun } : {}), ...(budget !== undefined ? { budget } : {}) });
+      if (started) status.textContent = "episode starting — video appears in ~1 minute";
     });
     document.getElementById("stopBtn").addEventListener("click", () => {
-      if (confirm("End the episode? The sign-off will play and the stream will stop.")) {
+      if (confirm("End the episode? The sign-off will play and the stream will stop (1–2 minutes).")) {
         call("/stop");
+      }
+    });
+    document.getElementById("hardStopBtn").addEventListener("click", () => {
+      if (confirm("HARD stop? The stream cuts immediately with no sign-off. The recording is kept.")) {
+        call("/stop", { hard: true });
       }
     });
 
@@ -333,7 +382,10 @@
           const dur = !ep.durationSec ? "" :
             ep.durationSec >= 90 ? ` · ${Math.round(ep.durationSec / 60)}min` : ` · ${Math.round(ep.durationSec)}s`;
           label.textContent = `${when} — ${ep.show ?? "?"}${ep.dryRun ? " (dry)" : ""}` + dur +
-            (ep.sizeMB ? ` · ${ep.sizeMB}MB` : "");
+            (ep.sizeMB ? ` · ${ep.sizeMB}MB` : "") +
+            (ep.cycles != null ? ` · ${ep.cycles} cycles` : "") +
+            (ep.spentUsd ? ` · ~$${Number(ep.spentUsd).toFixed(2)}` : "") +
+            (ep.aborted ? ` · ${ep.aborted}` : "");
           row.appendChild(label);
           if (ep.hasVideo) {
             const watch = document.createElement("a");

@@ -31,8 +31,10 @@ export class ClaudeDirector implements Director {
   constructor(
     apiKey: string,
     private systemPrompt: string,
+    /** Per-call timeout; the SDK default (10 min) is far longer than a cycle can wait. */
+    timeoutMs = 90_000,
   ) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 1 });
   }
 
   async decide(input: {
