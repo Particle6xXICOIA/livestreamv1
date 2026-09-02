@@ -18,36 +18,65 @@ Live Handoff") owned by Mark — tokens are NEVER committed here (public repo).
 - **Spend**: fal.ai billing dashboard — video generation is the only
   meaningful cost.
 
-## Where things stand (end of 1 Sep 2026 session)
+## Where things stand (end of 2 Sep 2026 session)
 
-Deployed to production (PRs #14–#17, all merged, deploys green): in-app show
-creation, the durable `tilly-data` volume at `/data`, episode recordings with
-the producer Episodes dialog, the $5-per-episode spend cap, and optional
-consistency (stills/voices) on asset builds.
+Deployed to production and green (PRs #14–#20, all merged):
 
-**Awaiting review (overnight session, branch `claude/code-review-clarify-67fft3`,
-NOT merged):** the hardening pass — generation/director timeouts, playout
-failure isolation, director backoff, hard stop, daily spend cap, disk gate,
-orphan-recording recovery, producer live readout, chat history + rate limit,
-cookie/token hygiene, a 27-test suite (`npm test`) and GitHub Actions CI. All
-validated with dry runs and a local server session; nothing player-facing in
-the HLS attach path was touched. Review, merge, then confirm the first deploy
-logs `[server] spend: $5/episode, $25/day` and `/healthz` returns `episode`.
+- In-app show creation, the durable `tilly-data` volume at `/data`, episode
+  recordings + Episodes dialog, $5/episode cap, optional consistency on asset
+  builds (#14–#17, 1 Sep).
+- **Hardening pass (#19, merged 2 Sep 06:45Z):** generation/director
+  timeouts, playout failure isolation, director backoff, hard stop, $25/day
+  spend ledger, disk gate, orphan-recording recovery (recovered one real
+  interrupted recording on its first boot), producer live readout, chat
+  history + rate limit, cookie/token hygiene, test suite + GitHub Actions CI.
+- **Research follow-up Tier 1 (#20, merged 2 Sep 07:40Z):** −16 LUFS
+  loudness normalisation on every clip, Haiku output screen on the
+  director's riff/scene prompt, rerun-as-filler, `bufferSec`/`concurrency`
+  latency knobs, p50/p95 timing + cache-read accounting in `episode_end`,
+  "AI-generated" badge. Deploy boot log confirmed:
+  `[server] spend: $5/episode, $25/day`.
+
+Nothing is awaiting review. 32 tests pass (`npm test`, ~130s; write output
+to a file rather than a pipe if a stray ffmpeg ever holds it open).
+
+**Not yet exercised with real money** (fal balance was exhausted all
+session): the flux reference-still endpoint, the output screen against a real
+director (needs `ANTHROPIC_API_KEY`, which is Railway-only — the Claude Code
+environment lacks it), the daily ledger accruing real charges, and every
+timing number that would justify lowering the 45s buffer.
 
 Pending, in order:
 
-1. **Mark tops up fal** (account locked: exhausted balance after an ~$80 day
-   — see the spend-cap section for what happened). Until then: compiling
-   shows and dry runs work; uploads, asset builds, and paid episodes 403.
-2. **First real asset build** — Mark compiled an "Infinite Monkeys" draft on
-   the production volume (host monkey + six pitchers, vote leaderboard). It
-   awaits its build; this also exercises `fal-ai/flux/dev` for the first
-   time. The consistency checkboxes appear in the dialog only after a
-   Compile, so for this existing draft either build via
+1. **Mark tops up fal** (account locked after an ~$80 day — see the spend-cap
+   section). Until then: compiling shows and dry runs work; uploads, asset
+   builds, and paid episodes 403.
+2. **Browser pass on production** (any time, $0): start a dry episode from the
+   producer page; confirm the new readout (`c<cycle> · <sec> buffered ·
+   <n> generating`, `$N left today`), the Hard stop button, the "buf s"/"par"
+   fields, and the AI-generated badge. Dry runs must never log
+   `screened_out`.
+3. **First paid episode after top-up, short and test-quality**, then read its
+   `episode_end` line: `timing.generationMs.p95` vs `bufferTargetSec` decides
+   whether to lower the buffer default; `director.cacheReadTokens > 0`
+   proves caching; `screenedOut` shows the output screen is alive.
+4. **Tier 2 (~$3 of fal):** A/B `minimax/h3/reference-to-video` ($0.06/s
+   768p, $0.05/s 480p with references) against our `minimax/h3-max` flat
+   $0.08/s — latency, likeness, voice. If base H3 is fast enough, switch
+   and add the downgrade ladder (768p → 480p-with-refs → reruns) near caps.
+   Also try a fixed `seed` per show for host clips.
+5. **First real asset build** — the "Infinite Monkeys" draft on the
+   production volume awaits its build (first use of `fal-ai/flux/dev`).
+   Consistency checkboxes appear only after Compile, so either
    `POST /shows/build {"id":..., "stills":bool, "voices":bool}` or
    re-compile and delete the old draft.
-3. **First real created-show episode** — remember $5 cap ≈ ~1 min full
-   quality; raise "$ cap" deliberately for a longer show.
+6. **First real created-show episode** — $5 cap ≈ ~1 min full quality;
+   raise "$ cap" deliberately for a longer show.
+
+Later (see "Research notes"): director-generated candidate scenes viewers
+upvote as a built-in mechanic; in-app editing of a created show's text
+fields; a music policy for native audio; flipping the output screen to
+fail-closed before any public broadcast.
 
 ## The pipeline
 
