@@ -13,6 +13,7 @@
   header .flamingo { font-size: 18px; }
   #live { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #3a3554; }
   #live.on { background: #c0264b; }
+  #aiBadge { font-size: 11px; padding: 2px 7px; border-radius: 999px; border: 1px solid #3a3554; color: #8f88a8; letter-spacing: .02em; }
   main { flex: 1; display: flex; min-height: 0; }
   #stage { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; min-width: 0; position: relative; }
   .overlay { position: absolute; z-index: 2; border: 0; border-radius: 999px; background: rgba(20,18,28,.85); color: #fff; font: inherit; cursor: pointer; padding: 12px 22px; }
@@ -58,10 +59,13 @@
   <span class="flamingo">🦩</span>
   <h1 id="showTitle">Tilly Live</h1>
   <span id="live">offline</span>
+  <span id="aiBadge" title="Every second of video and audio on this stream is AI-generated. Nothing here is real footage.">AI-generated</span>
   <div id="producer">
     <select id="showSelect"></select>
     <label>min <input id="minutes" type="number" min="1" max="60" value="10"></label>
     <label>cycles <input id="cycles" type="number" min="1" max="99" placeholder="∞"></label>
+    <label title="Seconds of content to keep buffered ahead of air (default 45). Lower = chat reaches the screen sooner but fillers air whenever generation falls behind. Check the p95 generation time in a past episode's log before going below ~25.">buf&nbsp;s <input id="bufferSec" type="number" min="5" max="180" placeholder="45"></label>
+    <label title="Cycles generating in parallel (default 2; each cycle is up to two fal requests). Raise only if your fal account allows more concurrent requests.">par <input id="concurrency" type="number" min="1" max="4" placeholder="2"></label>
     <label title="Estimated-spend cap for this episode (USD). Generation stops when it's hit; buffered content and the sign-off still air. 0 = uncapped. Full quality costs ~$4.80/min, so the $5 default ends a full-quality stream after roughly a minute — raise it deliberately for longer shows.">$&nbsp;cap <input id="budget" type="number" min="0" step="1" value="5"></label>
     <label title="480p, prompt-only likeness (no reference conditioning) — ~85% cheaper. For plumbing/pacing tests, not real episodes."><input id="testQ" type="checkbox"> test&nbsp;$</label>
     <label title="Free: title-card clips instead of generated video. Use this to preview a new show's loop, prompts, and pacing at $0."><input id="dryQ" type="checkbox"> dry</label>
@@ -348,7 +352,9 @@
       // An emptied field falls back to the server's $5 default — never to uncapped.
       const budgetRaw = document.getElementById("budget").value.trim();
       const budget = budgetRaw === "" ? undefined : Math.max(0, Number(budgetRaw));
-      const started = await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}), ...(dryRun ? { dryRun } : {}), ...(budget !== undefined ? { budget } : {}) });
+      const bufferSec = Number(document.getElementById("bufferSec").value) || undefined;
+      const concurrency = Number(document.getElementById("concurrency").value) || undefined;
+      const started = await call("/start", { minutes, ...(cycles ? { cycles } : {}), ...(show ? { show } : {}), ...(quality ? { quality } : {}), ...(dryRun ? { dryRun } : {}), ...(budget !== undefined ? { budget } : {}), ...(bufferSec ? { bufferSec } : {}), ...(concurrency ? { concurrency } : {}) });
       if (started) status.textContent = "episode starting — video appears in ~1 minute";
     });
     document.getElementById("stopBtn").addEventListener("click", () => {

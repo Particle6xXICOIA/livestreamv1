@@ -7,6 +7,7 @@ import { TwitchChat } from "./chat/twitchChat.js";
 import { YouTubeChat } from "./chat/youtubeChat.js";
 import { StubDirector } from "./director/stubDirector.js";
 import { ClaudeDirector } from "./director/claudeDirector.js";
+import { ClaudeScreener, Screener } from "./director/screener.js";
 import { StubGenerator } from "./generation/stubGenerator.js";
 import { FalH3MaxGenerator } from "./generation/falGenerator.js";
 import { DailySpendLedger, SpendMeter } from "./generation/spend.js";
@@ -41,6 +42,8 @@ export function buildComponents(
   director: Director;
   generator: ClipGenerator;
   spend: SpendMeter;
+  /** Output-side content screen; null on dry runs, without a key, or when disabled. */
+  screener: Screener | null;
 } {
   // Dry runs are free — never let the budget gate cut them short. Paid
   // episodes run under their own cap tightened to what is left of the day.
@@ -76,7 +79,17 @@ export function buildComponents(
       ? new FalH3MaxGenerator(config.falKey, show, envFallbackRefs(config, show), config.testQuality, spend)
       : warnStub("generator", "FAL_KEY not set", new StubGenerator(config.video, show.character.name));
 
-  return { chat, director, generator, spend };
+  // The screen only matters when a real director writes real prompts; dry
+  // runs and the stub director produce nothing that needs checking.
+  const screener =
+    !config.dryRun && config.outputScreen && config.anthropicKey
+      ? new ClaudeScreener(config.anthropicKey, undefined, Math.min(30_000, config.directorTimeoutSec * 1000))
+      : null;
+  if (!config.dryRun && config.anthropicKey && !config.outputScreen) {
+    console.warn("[config] OUTPUT_SCREEN=off — the director's output airs unscreened");
+  }
+
+  return { chat, director, generator, spend, screener };
 }
 
 /**

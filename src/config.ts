@@ -31,6 +31,8 @@ export interface Config {
   generationTimeoutSec: number;
   /** Director (Claude) call timeout per cycle. */
   directorTimeoutSec: number;
+  /** Screen the director's own output (riff + scene prompt) with a cheap model before generating. */
+  outputScreen: boolean;
   rtmpUrl: string | null;
   /** When set, playout writes HLS into this directory instead of RTMP/file. */
   hlsDir: string | null;
@@ -85,6 +87,7 @@ export function loadConfig(argv: string[]): Config {
     dailyBudgetUsd: Number(flags.get("daily-budget") ?? env.DAILY_BUDGET_USD ?? 25),
     generationTimeoutSec: Number(flags.get("generation-timeout") ?? env.GENERATION_TIMEOUT_SEC ?? 240),
     directorTimeoutSec: Number(flags.get("director-timeout") ?? env.DIRECTOR_TIMEOUT_SEC ?? 90),
+    outputScreen: !flags.has("no-output-screen") && (env.OUTPUT_SCREEN ?? "on") !== "off",
     rtmpUrl: (flags.get("rtmp") as string) ?? env.RTMP_URL ?? null,
     hlsDir: (flags.get("hls") as string) ?? null,
     twitchChannel: (flags.get("channel") as string) ?? env.TWITCH_CHANNEL ?? null,

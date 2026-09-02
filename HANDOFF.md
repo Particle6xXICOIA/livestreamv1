@@ -93,6 +93,29 @@ button / `/stop {"hard":true}` / second Ctrl-C on the CLI) abandons in-flight
 generation and cuts the stream within seconds; the partial recording is still
 finalized. Use it when a show goes wrong on air.
 
+**Latency knobs (producer "buf s" / "par", or `bufferSec` / `concurrency` on
+/start).** Default 45s buffer, 2 parallel cycles. Chat-to-screen latency is
+roughly one cycle plus the buffer, so a smaller buffer is the lever — but
+fillers air whenever generation falls behind it. Every episode's
+`episode_end` log line now carries `timing.generationMs.p95` and
+`directorMs.p95`: lower the buffer only when p95 generation is comfortably
+under the buffered seconds you keep. Each cycle is up to two fal requests, so
+"par 2" means four concurrent fal calls; new fal accounts allow only 2
+concurrent requests (excess queues, inflating generation time) — check the
+account limit in the fal dashboard before raising it.
+
+**Output screen.** Every director decision is read by Haiku 4.5 against the
+platform's content rules before any generation is paid for
+(`src/director/screener.ts`); a refusal drops the cycle (`screened_out` in
+the log, fillers cover it). Screener errors fail open with a `screen_error`
+log line — flip that to fail-closed before any public broadcast.
+`OUTPUT_SCREEN=off` disables it. Rationale: every AI stream that got banned
+failed on the output side, not the chat side.
+
+**When the queue runs dry** the playout interleaves the show's filler library
+with reruns of scene clips that aired ≥4 minutes earlier this episode
+(`src/playout/fillerRotation.ts`) — free and on-theme.
+
 **What the producer panel shows while live:** `~$spend · $left today`, then
 `c<cycle> · <sec> buffered · <n> generating`, and the last error (timeouts,
 director failures, disk) in red — the same snapshot `/healthz` returns under
@@ -235,8 +258,13 @@ finalizes such orphans to `episode.mp4` at boot.
 - Self-hosting open H3 weights is licence-blocked in the UK/EU/US (covers
   outputs too); ~10–20× cheaper at volume if MiniMax grants a territory
   licence. The hosted fal API is unrestricted.
-- reference-to-video has NO cheap 480p tier — that's why test mode drops
-  references.
+- Cheap test mode drops references (text-to-video 480p). Two verified
+  alternatives exist (fal schemas, 2 Sep 2026): `minimax/h3-max/reference-to-video`
+  accepts `resolution: "480P"` but still bills a flat $0.08/s; the base
+  `minimax/h3/reference-to-video` endpoint is $0.05/s at 480p and $0.06/s at
+  768p WITH references (first 5 stills free), i.e. 25% cheaper than what we
+  run at the same resolution — speed on fal unmeasured. A ~$3 A/B (latency,
+  likeness, voice) decides whether to switch; see "Research notes".
 - Generate filler libraries for `tilly-agony-aunt` and `tilly-interviews`;
   add the first non-Tilly character.
 - **fal balance is EXHAUSTED (as of 1 Sep 2026)** — the account is locked,
@@ -249,6 +277,38 @@ finalizes such orphans to `episode.mp4` at boot.
   build log and the build is retryable. Everything else was validated with
   local dry runs of two representative created shows (multi-cast voting;
   riff-less persistent journey) and a browser pass over the producer UI.
+
+## Research notes (2 Sep 2026)
+
+A deep-research pass over other AI-livestream implementations (fal.live /
+H3 Max Live, Infinite Slop, infinite-tv, Nothing Forever, Neuro-sama) was
+checked against fal's live OpenAPI schemas and Anthropic's docs. What held:
+
+- Our architecture (independent clips → normalise → one persistent ffmpeg
+  with running timestamp offsets → HLS) matches the field; nobody has a
+  better stitching answer. Infinite Slop runs a 1-clip buffer with 2–4
+  concurrent generations and reruns as filler — hence the latency knobs and
+  rerun fillers above.
+- Loudness varied clip to clip everywhere native audio is used; we now
+  normalise every clip to −16 LUFS (`LOUDNORM_FILTER` in
+  `src/generation/ffmpeg.ts`).
+- Twitch and YouTube removed fal's own continuous AI stream within days
+  (Aug 2026). Self-hosting is a strategic advantage; the viewer page now
+  carries an "AI-generated" badge regardless.
+- Prompt caching on the director was already in place (Opus 5 caches from
+  512 tokens; our prompts are ~760–880). `episode_end.director.cacheReadTokens`
+  proves it per episode.
+- All three H3 endpoints on fal accept a `seed` (untested for set
+  consistency) and up to 9 reference images / 3 videos / 3 audio (12 files);
+  reference INPUT tokens beyond 4,096 cost $0.02 per 1k — a reference video
+  costs ~7,459 tokens per second at 768p, so "previous host clip as
+  reference" is ~$1.49 per generation and not worth it.
+- `end_image_url` (first/last-frame chaining) exists only on
+  `minimax/h3-max/image-to-video`, which has no reference audio — chaining
+  host clips would cost voice consistency. Not adopted.
+- Open: base-H3 A/B (above); director-generated candidate scenes that
+  viewers upvote as a built-in mechanic; a music policy for native audio
+  (ambience/foley only is the copyright-safe default).
 
 ## Working on this with Claude
 

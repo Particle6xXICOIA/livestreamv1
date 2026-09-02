@@ -237,7 +237,10 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/start") {
       if (running) return send(409, { error: "an episode is already running" });
-      const params = await readJson<{ minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string; quality?: string; budget?: number }>(req, 4096);
+      const params = await readJson<{
+        minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string; quality?: string; budget?: number;
+        bufferSec?: number; concurrency?: number;
+      }>(req, 4096);
       if (!params) return send(400, { error: "invalid JSON body" });
       let show;
       try {
@@ -253,6 +256,13 @@ const server = http.createServer(async (req, res) => {
         argv.push("--budget", String(params.budget));
       }
       if (params.cycles) argv.push("--cycles", String(params.cycles));
+      // Latency knobs: a smaller buffer gets chat to the screen sooner at the
+      // cost of more filler when generation falls behind; parallelism is
+      // bounded by the fal account's concurrent-request limit.
+      const bufferSec = Number(params.bufferSec);
+      if (bufferSec >= 5 && bufferSec <= 180) argv.push("--buffer", String(bufferSec));
+      const concurrency = Number(params.concurrency);
+      if (concurrency >= 1 && concurrency <= 4) argv.push("--concurrency", String(Math.round(concurrency)));
       if (params.dryRun) argv.push("--dry-run");
       if (params.quality === "test") argv.push("--test-quality");
       const config = loadConfig(argv);
@@ -285,8 +295,8 @@ const server = http.createServer(async (req, res) => {
         return send(500, { error: String(err) });
       }
       if (config.hlsDir) fs.rmSync(HLS_DIR, { recursive: true, force: true });
-      const { chat, director, generator, spend } = components;
-      runner = new EpisodeRunner(config, show, chat, director, generator, spend);
+      const { chat, director, generator, spend, screener } = components;
+      runner = new EpisodeRunner(config, show, chat, director, generator, spend, screener);
       runner.onDecision = (decision) => {
         broadcastChat({
           type: "system",
@@ -330,6 +340,9 @@ const server = http.createServer(async (req, res) => {
         budgetUsd: spend.budgetUsd,
         quality: config.testQuality ? "test (480p, no references)" : "full (reference-to-video)",
         output: config.hlsDir ? "platform (HLS)" : config.rtmpUrl ? "rtmp" : "local file",
+        bufferSec: config.bufferTargetSec,
+        concurrency: config.maxConcurrentCycles,
+        outputScreening: Boolean(screener),
       });
     }
     if (req.method === "POST" && url.pathname === "/stop") {

@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { ChatSource, Clip, ClipGenerator, CycleDecision, Director, Suggestion } from "../types.js";
+import { Screener } from "../director/screener.js";
 import { Config } from "../config.js";
 import { Playout } from "../playout/playout.js";
 import { EpisodeArchive, finalizeRecording, freeBytes, pruneEpisodes } from "./archive.js";
@@ -63,6 +64,8 @@ export class EpisodeRunner {
     private generator: ClipGenerator,
     /** Estimated-spend meter the generator charges; gates new cycles at the budget. */
     private spend?: SpendMeter,
+    /** Output-side content screen applied to every director decision before generation. */
+    private screener?: Screener | null,
   ) {
     this.archive = new EpisodeArchive(config.outDir);
     this.playout = new Playout(
@@ -208,6 +211,11 @@ export class EpisodeRunner {
     let carried: Suggestion[] = [];
     let directorFailures = 0;
     let lastDiskCheck = Date.now();
+    // Timing evidence for tuning the buffer: how long cycles really take.
+    const directorMsSamples: number[] = [];
+    const generationMsSamples: number[] = [];
+    const usageTotals = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 0 };
+    let screenedOut = 0;
 
     while (Date.now() < endAt && cycle < config.maxCycles && !this.stopRequested) {
       if (this.playout.failed) {
@@ -274,9 +282,18 @@ export class EpisodeRunner {
         await this.sleepUnlessStopped(backoffMs);
         continue;
       }
+      directorMsSamples.push(Date.now() - tDirector);
+      if (decision.usage) {
+        usageTotals.calls++;
+        usageTotals.inputTokens += decision.usage.inputTokens;
+        usageTotals.outputTokens += decision.usage.outputTokens;
+        usageTotals.cacheReadTokens += decision.usage.cacheReadTokens;
+        usageTotals.cacheWriteTokens += decision.usage.cacheWriteTokens;
+      }
       this.archive.log("decision", {
         cycle: thisCycle,
         directorMs: Date.now() - tDirector,
+        usage: decision.usage,
         picked: decision.suggestion,
         riff: decision.hostRiff,
         scenePrompt: decision.scenePrompt,
@@ -288,6 +305,28 @@ export class EpisodeRunner {
       recentCycles.push(
         decision.suggestion ? decision.suggestion.text : `(invented) ${decision.scenePrompt.slice(0, 80)}`,
       );
+
+      // Output-side screen: the director's own writing is what reaches the
+      // video model and the audience. A refusal drops the cycle (fillers
+      // cover it) before any generation is paid for. A screener ERROR fails
+      // open with a logged warning — the director itself would be failing
+      // too if the API were down, and a private platform prefers airing to
+      // stalling; flip that if the stream ever goes public.
+      if (this.screener) {
+        try {
+          const verdict = await withTimeout(this.screener.screen(decision), config.directorTimeoutSec * 1000, "output screen");
+          if (!verdict.ok) {
+            screenedOut++;
+            this.archive.log("screened_out", { cycle: thisCycle, reason: verdict.reason, riff: decision.hostRiff, scenePrompt: decision.scenePrompt });
+            this.noteError(`screen refused cycle ${thisCycle}: ${verdict.reason ?? "no reason"}`);
+            completed.set(thisCycle, []);
+            releaseReady();
+            continue;
+          }
+        } catch (err) {
+          this.archive.log("screen_error", { cycle: thisCycle, error: String(err) });
+        }
+      }
       if (decision.updatedState !== null && this.show.format.stateInstructions) {
         showState = decision.updatedState;
         if (this.show.format.persistState) {
@@ -326,6 +365,7 @@ export class EpisodeRunner {
             await this.toClip(scene.mp4Path, scene.durationSec, "scene", `${tag} scene`),
           ];
           if (this.hardStopRequested) return;
+          generationMsSamples.push(Date.now() - t0);
           this.archive.log("generated", { cycle: thisCycle, generationMs: Date.now() - t0 });
           completed.set(thisCycle, clips);
         } catch (err) {
@@ -388,6 +428,16 @@ export class EpisodeRunner {
       cycles: cycle,
       estimatedSpendUsd: round2(this.spend?.spentUsd ?? 0),
       ...(this.playout.failed ? { aborted: "playout failed" } : {}),
+      // Tuning evidence: compare generation p95 with bufferTargetSec before
+      // lowering the buffer; cache reads show the director prompt is cached.
+      timing: {
+        directorMs: percentiles(directorMsSamples),
+        generationMs: percentiles(generationMsSamples),
+        bufferTargetSec: config.bufferTargetSec,
+        maxConcurrentCycles: config.maxConcurrentCycles,
+      },
+      director: usageTotals,
+      screenedOut,
     });
     await this.finalizeArchive();
     this.status.live = false;
@@ -498,6 +548,14 @@ export class EpisodeRunner {
     }
     return fillers;
   }
+}
+
+/** p50/p95/max over a sample set (ms), or null when nothing was measured. */
+export function percentiles(samples: number[]): { n: number; p50: number; p95: number; max: number } | null {
+  if (samples.length === 0) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))];
+  return { n: sorted.length, p50: at(0.5), p95: at(0.95), max: sorted[sorted.length - 1] };
 }
 
 /** Reject after `ms` with a descriptive error; the underlying promise keeps running. */

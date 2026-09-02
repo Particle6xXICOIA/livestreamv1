@@ -236,7 +236,7 @@ Keep every cycle fresh: vary settings, wardrobe details, and comic shapes relati
 export function hostClipPrompt(show: ShowConfig, riff: string): string {
   return (
     `${show.character.visualAnchors}, on ${show.format.hostSet}. ` +
-    `Medium shot, static camera, talking directly to camera, natural and animated. ` +
+    `[Static shot] Medium shot, static camera, talking directly to camera, natural and animated. ` +
     `Says: "${riff.replace(/"/g, "'")}"`
   );
 }

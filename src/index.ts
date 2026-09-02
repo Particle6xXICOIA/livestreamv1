@@ -5,8 +5,8 @@ import { EpisodeRunner } from "./episode/runner.js";
 
 const config = loadConfig(process.argv.slice(2));
 const show = getShow(config.show);
-const { chat, director, generator, spend } = buildComponents(config, show);
-const runner = new EpisodeRunner(config, show, chat, director, generator, spend);
+const { chat, director, generator, spend, screener } = buildComponents(config, show);
+const runner = new EpisodeRunner(config, show, chat, director, generator, spend, screener);
 
 process.on("SIGINT", () => {
   console.log("\nSIGINT — ending episode gracefully (Ctrl-C again for a hard stop)…");

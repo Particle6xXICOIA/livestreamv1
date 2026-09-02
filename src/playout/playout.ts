@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from "node:child_process";
 import { Clip } from "../types.js";
+import { FillerRotation } from "./fillerRotation.js";
 
 /**
  * Continuous playout: one persistent ffmpeg process reads normalized MPEG-TS
@@ -18,8 +19,7 @@ import { Clip } from "../types.js";
 export class Playout {
   private proc: ChildProcess | null = null;
   private queue: Clip[] = [];
-  private fillers: Clip[] = [];
-  private fillerIdx = 0;
+  private fillers = new FillerRotation([]);
   private running = false;
   private stopping = false;
   private pumpDone: Promise<void> | null = null;
@@ -33,7 +33,7 @@ export class Playout {
   ) {}
 
   setFillers(fillers: Clip[]) {
-    this.fillers = fillers;
+    this.fillers.setLibrary(fillers);
   }
 
   /** Set when playout has died; the episode cannot continue airing. */
@@ -121,6 +121,8 @@ export class Playout {
       this.onPlay(clip);
       try {
         await this.writeClip(clip);
+        // Aired scenes become rerun candidates for the next dry spell.
+        this.fillers.noteAired(clip);
       } catch (err) {
         if (this.running) throw err;
         break; // stream closed during shutdown
@@ -130,10 +132,7 @@ export class Playout {
   }
 
   private nextFiller(): Clip | undefined {
-    if (this.fillers.length === 0) return undefined;
-    const clip = this.fillers[this.fillerIdx % this.fillers.length];
-    this.fillerIdx++;
-    return clip;
+    return this.fillers.next();
   }
 
   /** Running timestamp offset so the concatenated stream is monotonic. */
