@@ -23,6 +23,14 @@ export interface Config {
   outDir: string;
   /** Total size cap for archived episodes; oldest are pruned past it. */
   archiveMaxGB: number;
+  /** Refuse to start (and stop gracefully mid-show) when the archive disk has less free space than this. */
+  minFreeGB: number;
+  /** Cross-episode cap for one UTC day (DAILY_BUDGET_USD); <=0 = uncapped. */
+  dailyBudgetUsd: number;
+  /** A cycle whose generation takes longer than this is abandoned (fillers cover it). */
+  generationTimeoutSec: number;
+  /** Director (Claude) call timeout per cycle. */
+  directorTimeoutSec: number;
   rtmpUrl: string | null;
   /** When set, playout writes HLS into this directory instead of RTMP/file. */
   hlsDir: string | null;
@@ -70,7 +78,13 @@ export function loadConfig(argv: string[]): Config {
     maxConcurrentCycles: Number(flags.get("concurrency") ?? env.MAX_CONCURRENT_CYCLES ?? 2),
     bufferTargetSec: Number(flags.get("buffer") ?? env.BUFFER_TARGET_SEC ?? 45),
     outDir: String(flags.get("out") ?? env.ARCHIVE_DIR ?? DATA_DIR),
-    archiveMaxGB: Number(flags.get("archive-gb") ?? env.ARCHIVE_MAX_GB ?? 4),
+    // Recordings live on a small volume (5 GB assumed): keep headroom for the
+    // in-progress recording, created-show assets, and the mp4 remux at the end.
+    archiveMaxGB: Number(flags.get("archive-gb") ?? env.ARCHIVE_MAX_GB ?? 2),
+    minFreeGB: Number(flags.get("min-free-gb") ?? env.MIN_FREE_GB ?? 1),
+    dailyBudgetUsd: Number(flags.get("daily-budget") ?? env.DAILY_BUDGET_USD ?? 25),
+    generationTimeoutSec: Number(flags.get("generation-timeout") ?? env.GENERATION_TIMEOUT_SEC ?? 240),
+    directorTimeoutSec: Number(flags.get("director-timeout") ?? env.DIRECTOR_TIMEOUT_SEC ?? 90),
     rtmpUrl: (flags.get("rtmp") as string) ?? env.RTMP_URL ?? null,
     hlsDir: (flags.get("hls") as string) ?? null,
     twitchChannel: (flags.get("channel") as string) ?? env.TWITCH_CHANNEL ?? null,

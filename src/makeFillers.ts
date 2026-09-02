@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { loadConfig } from "./config.js";
 import { getShow, showAssetDirs } from "./shows.js";
 import { StubGenerator } from "./generation/stubGenerator.js";
-import { FalH3MaxGenerator } from "./generation/falGenerator.js";
+import { FILLER_CLIP_SEC, FalH3MaxGenerator } from "./generation/falGenerator.js";
 import { envFallbackRefs } from "./components.js";
 
 /**
@@ -24,7 +24,7 @@ const count = Math.min(
 );
 
 const generator = config.falKey
-  ? new FalH3MaxGenerator(config.falKey, show, envFallbackRefs(config, show), config.video)
+  ? new FalH3MaxGenerator(config.falKey, show, envFallbackRefs(config, show))
   : (console.warn("[fillers] FAL_KEY not set — generating placeholder cards"),
     new StubGenerator(config.video));
 
@@ -32,7 +32,7 @@ fs.mkdirSync(dirs.fallback, { recursive: true });
 for (let i = 0; i < count; i++) {
   const tag = `filler-${String(i + 1).padStart(2, "0")}`;
   console.log(`[fillers] ${show.id}: generating ${tag}…`);
-  const clip = await generator.generateSceneClip(prompts[i], 8, dirs.fallback, tag);
+  const clip = await generator.generateSceneClip(prompts[i], FILLER_CLIP_SEC, dirs.fallback, tag);
   console.log(`[fillers] wrote ${clip.mp4Path} (${clip.durationSec}s)`);
 }
 

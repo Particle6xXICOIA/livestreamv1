@@ -6,9 +6,11 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { loadConfig } from "./config.js";
 import { deleteCreatedShow, getShow, loadShows, saveCreatedShow } from "./shows.js";
-import { buildComponents } from "./components.js";
+import { DailyBudgetExhausted, buildComponents, makeLedger } from "./components.js";
 import { WebChat } from "./chat/webChat.js";
-import { EpisodeRunner } from "./episode/runner.js";
+import { RateLimiter } from "./chat/rateLimiter.js";
+import { EpisodeRunner, EpisodeStatus } from "./episode/runner.js";
+import { freeBytes, pruneEpisodes, recoverOrphanRecordings } from "./episode/archive.js";
 import {
   compileShow,
   errText,
@@ -23,7 +25,8 @@ import {
  *  - GET  /?key=VIEWER_TOKEN      viewer page (player + chat)
  *  - GET  /hls/*?key=...          the live HLS stream
  *  - WS   /chat?key=...           team chat; "!prompt ..." feeds the director
- *  - POST /start | /stop          episode control (Bearer CONTROL_TOKEN)
+ *  - POST /start | /stop          episode control (Bearer CONTROL_TOKEN);
+ *                                 /stop {"hard":true} cuts the stream now
  *  - POST /shows/create|build|delete, GET /shows/build-status, POST /uploads
  *                                 in-app show creation (Bearer CONTROL_TOKEN)
  *  - GET  /healthz                unauthenticated liveness
@@ -32,6 +35,7 @@ const baseArgs = process.argv.slice(2);
 const bootConfig = loadConfig(baseArgs);
 const HLS_DIR = path.resolve("out/hls");
 const here = path.dirname(fileURLToPath(import.meta.url));
+const ledger = makeLedger(bootConfig);
 
 const webChat = new WebChat();
 let runner: EpisodeRunner | null = null;
@@ -39,14 +43,24 @@ let running = false;
 let currentShowTitle: string | null = null;
 let currentShowId: string | null = null;
 let currentShowHint: string | null = null;
+let currentCharacter: string | null = null;
+let episodeStatus: EpisodeStatus | null = null;
 
 function statusPayload() {
+  const remaining = ledger.remainingToday();
   return {
     type: "status",
     live: running,
     showTitle: currentShowTitle,
+    characterName: currentCharacter,
     hint: currentShowHint,
     spentUsd: runner?.spentUsd ?? null,
+    episode: episodeStatus,
+    daily: {
+      budgetUsd: ledger.dailyBudgetUsd > 0 ? ledger.dailyBudgetUsd : null,
+      spentUsd: Math.round(ledger.spentToday() * 100) / 100,
+      remainingUsd: remaining === Infinity ? null : Math.round(remaining * 100) / 100,
+    },
   };
 }
 
@@ -61,10 +75,28 @@ async function readBody(req: http.IncomingMessage, maxBytes: number): Promise<Bu
   return Buffer.concat(chunks);
 }
 
+async function readJson<T extends object>(req: http.IncomingMessage, maxBytes: number): Promise<T | null> {
+  try {
+    const text = (await readBody(req, maxBytes)).toString();
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch {
+    return null;
+  }
+}
+
 const sockets = new Set<WebSocket>();
 function broadcast(obj: unknown): void {
   const msg = JSON.stringify(obj);
   for (const ws of sockets) if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+}
+
+/** Recent chat so late joiners see the conversation, not an empty pane. */
+const CHAT_HISTORY = 60;
+const chatHistory: unknown[] = [];
+function broadcastChat(obj: { type: "chat" | "system"; [k: string]: unknown }): void {
+  chatHistory.push(obj);
+  if (chatHistory.length > CHAT_HISTORY) chatHistory.shift();
+  broadcast(obj);
 }
 
 function tokenOk(provided: string | null, expected: string | null): boolean {
@@ -97,6 +129,11 @@ function viewerOk(req: http.IncomingMessage, url: URL): boolean {
   );
 }
 
+function isHttps(req: http.IncomingMessage): boolean {
+  const proto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim();
+  return proto === "https" || Boolean((req.socket as { encrypted?: boolean }).encrypted);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   const send = (code: number, obj: unknown) => {
@@ -105,7 +142,7 @@ const server = http.createServer(async (req, res) => {
   };
 
   if (req.method === "GET" && url.pathname === "/healthz") {
-    return send(200, { ok: true, episodeRunning: running });
+    return send(200, { ok: true, episodeRunning: running, episode: episodeStatus });
   }
 
   // Control plane — Bearer CONTROL_TOKEN.
@@ -139,12 +176,8 @@ const server = http.createServer(async (req, res) => {
     // Phase 1 of show creation: compile the brief into a full config (free).
     if (req.method === "POST" && url.pathname === "/shows/create") {
       if (!bootConfig.anthropicKey) return send(503, { error: "ANTHROPIC_API_KEY not configured" });
-      let params: { title?: string; description?: string; imageUrls?: string[]; audioUrl?: string } = {};
-      try {
-        params = JSON.parse((await readBody(req, 64 * 1024)).toString() || "{}");
-      } catch {
-        return send(400, { error: "invalid JSON body" });
-      }
+      const params = await readJson<{ title?: string; description?: string; imageUrls?: string[]; audioUrl?: string }>(req, 64 * 1024);
+      if (!params) return send(400, { error: "invalid JSON body" });
       const description = String(params.description ?? "").trim();
       if (description.length < 20) return send(400, { error: "describe the show in at least a sentence or two" });
       try {
@@ -165,12 +198,8 @@ const server = http.createServer(async (req, res) => {
     // Phase 2: the paid asset build. stills/voices are optional consistency:
     // false means that character trait regenerates per clip from the prompt.
     if (req.method === "POST" && url.pathname === "/shows/build") {
-      let params: { id?: string; stills?: boolean; voices?: boolean } = {};
-      try {
-        params = JSON.parse((await readBody(req, 4096)).toString() || "{}");
-      } catch {
-        return send(400, { error: "invalid JSON body" });
-      }
+      const params = await readJson<{ id?: string; stills?: boolean; voices?: boolean }>(req, 4096);
+      if (!params) return send(400, { error: "invalid JSON body" });
       try {
         const show = getShow(String(params.id ?? ""));
         if (show.origin !== "created") return send(400, { error: "built-in shows build via `npm run fillers`" });
@@ -193,12 +222,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/shows/delete") {
-      let params: { id?: string } = {};
-      try {
-        params = JSON.parse((await readBody(req, 4096)).toString() || "{}");
-      } catch {
-        return send(400, { error: "invalid JSON body" });
-      }
+      const params = await readJson<{ id?: string }>(req, 4096);
+      if (!params) return send(400, { error: "invalid JSON body" });
       try {
         const show = getShow(String(params.id ?? ""));
         if (isBuilding(show.id)) return send(409, { error: "show is building — wait for it to finish" });
@@ -212,14 +237,8 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/start") {
       if (running) return send(409, { error: "an episode is already running" });
-      let body = "";
-      for await (const chunk of req) body += chunk;
-      let params: { minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string; quality?: string; budget?: number } = {};
-      try {
-        params = body ? JSON.parse(body) : {};
-      } catch {
-        return send(400, { error: "invalid JSON body" });
-      }
+      const params = await readJson<{ minutes?: number; cycles?: number; dryRun?: boolean; output?: string; show?: string; quality?: string; budget?: number }>(req, 4096);
+      if (!params) return send(400, { error: "invalid JSON body" });
       let show;
       try {
         show = getShow(String(params.show ?? bootConfig.show));
@@ -242,47 +261,84 @@ const server = http.createServer(async (req, res) => {
       if (params.output !== "rtmp") {
         config.hlsDir = HLS_DIR;
         config.rtmpUrl = null;
-        fs.rmSync(HLS_DIR, { recursive: true, force: true });
       }
-      const { chat, director, generator, spend } = buildComponents(config, show, webChat);
+      // Room for the recording: prune to the archive cap first, then require
+      // headroom — refusing here beats a recording that dies mid-show.
+      try {
+        pruneEpisodes(config.outDir, config.archiveMaxGB * 1e9, null);
+        const freeGB = freeBytes(config.outDir) / 1e9;
+        if (freeGB < config.minFreeGB) {
+          return send(507, {
+            error: `only ${freeGB.toFixed(2)} GB free on the archive disk (need ${config.minFreeGB} GB) — delete recordings, lower ARCHIVE_MAX_GB, or grow the volume`,
+          });
+        }
+      } catch (err) {
+        console.warn("[server] disk check failed:", String(err));
+      }
+      let components;
+      try {
+        components = buildComponents(config, show, webChat, ledger);
+      } catch (err) {
+        if (err instanceof DailyBudgetExhausted) {
+          return send(402, { error: err.message, dailyBudgetUsd: err.dailyBudgetUsd, spentTodayUsd: err.spentTodayUsd });
+        }
+        return send(500, { error: String(err) });
+      }
+      if (config.hlsDir) fs.rmSync(HLS_DIR, { recursive: true, force: true });
+      const { chat, director, generator, spend } = components;
       runner = new EpisodeRunner(config, show, chat, director, generator, spend);
       runner.onDecision = (decision) => {
-        broadcast({
+        broadcastChat({
           type: "system",
           text: decision.suggestion
             ? `🎬 Staging ${decision.suggestion.username}'s suggestion: "${decision.suggestion.text}" — on screen in a minute or so.`
             : `🎬 The director invented this scene — keep the !prompt suggestions coming!`,
         });
-        // Refresh the producer's live spend readout each cycle.
+      };
+      // Refresh the producer's live readout (spend, cycle, buffer, errors).
+      runner.onStatus = (status) => {
+        episodeStatus = status;
         broadcast(statusPayload());
       };
       running = true;
       currentShowTitle = show.title;
       currentShowId = show.id;
       currentShowHint = show.format.suggestionMeaning;
+      currentCharacter = show.character.name;
+      episodeStatus = runner.snapshot();
       broadcast(statusPayload());
       runner
         .run()
-        .catch((err) => console.error("[server] episode crashed:", err))
+        .catch((err) => {
+          console.error("[server] episode crashed:", err);
+          broadcastChat({ type: "system", text: `⚠️ The episode ended early: ${String(err).slice(0, 200)}` });
+        })
         .finally(() => {
           running = false;
           runner = null;
           currentShowTitle = null;
           currentShowId = null;
           currentShowHint = null;
+          currentCharacter = null;
+          episodeStatus = null;
           broadcast(statusPayload());
         });
       return send(202, {
         started: true,
         show: show.id,
         minutes: config.episodeMinutes,
-        budgetUsd: config.dryRun ? 0 : config.episodeBudgetUsd,
+        budgetUsd: spend.budgetUsd,
         quality: config.testQuality ? "test (480p, no references)" : "full (reference-to-video)",
         output: config.hlsDir ? "platform (HLS)" : config.rtmpUrl ? "rtmp" : "local file",
       });
     }
     if (req.method === "POST" && url.pathname === "/stop") {
       if (!runner) return send(409, { error: "no episode running" });
+      const params = (await readJson<{ hard?: boolean }>(req, 4096)) ?? {};
+      if (params.hard) {
+        runner.requestHardStop();
+        return send(202, { stopping: true, hard: true });
+      }
       runner.requestStop();
       return send(202, { stopping: true });
     }
@@ -298,8 +354,11 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && url.pathname === "/") {
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
-      // Segment/WS requests authorize via this cookie (see viewerOk).
-      "set-cookie": `${VIEWER_COOKIE}=${encodeURIComponent(bootConfig.viewerToken)}; Path=/; SameSite=Lax; Max-Age=2592000`,
+      // Segment/WS requests authorize via this cookie (see viewerOk). Scripts
+      // never need to read it, and it only travels over TLS in production.
+      "set-cookie":
+        `${VIEWER_COOKIE}=${encodeURIComponent(bootConfig.viewerToken)}; Path=/; SameSite=Lax; HttpOnly; Max-Age=2592000` +
+        (isHttps(req) ? "; Secure" : ""),
     });
     return res.end(fs.readFileSync(path.join(here, "web/viewer.html")));
   }
@@ -332,6 +391,11 @@ const server = http.createServer(async (req, res) => {
             if (ev.type === "recording_saved") {
               entry.durationSec = ev.durationSec;
               entry.sizeMB = ev.sizeMB;
+            }
+            if (ev.type === "episode_end") {
+              entry.cycles = ev.cycles;
+              if (ev.aborted) entry.aborted = ev.aborted;
+              if (ev.estimatedSpendUsd !== undefined) entry.spentUsd = ev.estimatedSpendUsd;
             }
           }
         } catch {}
@@ -403,6 +467,8 @@ server.on("upgrade", (req, socket, head) => {
   }
   wss.handleUpgrade(req, socket, head, (ws) => {
     sockets.add(ws);
+    const limiter = new RateLimiter();
+    for (const past of chatHistory) ws.send(JSON.stringify(past));
     ws.send(JSON.stringify(statusPayload()));
     ws.on("close", () => sockets.delete(ws));
     ws.on("message", (raw) => {
@@ -415,18 +481,22 @@ server.on("upgrade", (req, socket, head) => {
       const name = String(msg.name ?? "").slice(0, 40).trim() || "someone";
       const text = String(msg.text ?? "").slice(0, 300).trim();
       if (!text) return;
-      broadcast({ type: "chat", name, text, at: Date.now() });
+      if (!limiter.allow()) {
+        ws.send(JSON.stringify({ type: "system", text: "🐢 Easy there — a few messages every ten seconds is plenty." }));
+        return;
+      }
+      broadcastChat({ type: "chat", name, text, at: Date.now() });
       if (text.toLowerCase().startsWith("!prompt ")) {
         const suggestion = text.slice("!prompt ".length).trim();
         if (!suggestion) return;
         if (running) {
           webChat.push(name, suggestion);
-          broadcast({
+          broadcastChat({
             type: "system",
             text: `🦩 Suggestion received: "${suggestion}" (${name}) — the director sees it at the next cycle.`,
           });
         } else {
-          broadcast({ type: "system", text: `🦩 No episode is live right now — suggestions land when the show is on.` });
+          broadcastChat({ type: "system", text: `🦩 No episode is live right now — suggestions land when the show is on.` });
         }
       }
     });
@@ -437,4 +507,14 @@ server.listen(bootConfig.port, () => {
   console.log(`[server] Tilly platform listening on :${bootConfig.port}`);
   console.log(`[server] control: ${bootConfig.controlToken ? "enabled" : "DISABLED (set CONTROL_TOKEN)"}`);
   console.log(`[server] viewer:  ${bootConfig.viewerToken ? "enabled" : "DISABLED (set VIEWER_TOKEN)"}`);
+  console.log(
+    `[server] spend:   $${bootConfig.episodeBudgetUsd}/episode, ` +
+      (bootConfig.dailyBudgetUsd > 0 ? `$${bootConfig.dailyBudgetUsd}/day (~$${ledger.spentToday().toFixed(2)} used today)` : "no daily cap"),
+  );
+  // A restart mid-episode leaves a recording that never became an mp4.
+  recoverOrphanRecordings(bootConfig.outDir)
+    .then((ids) => {
+      if (ids.length) console.log(`[server] recovered ${ids.length} interrupted recording(s): ${ids.join(", ")}`);
+    })
+    .catch((err) => console.warn("[server] recording recovery failed:", String(err)));
 });

@@ -23,7 +23,18 @@ Live Handoff") owned by Mark — tokens are NEVER committed here (public repo).
 Deployed to production (PRs #14–#17, all merged, deploys green): in-app show
 creation, the durable `tilly-data` volume at `/data`, episode recordings with
 the producer Episodes dialog, the $5-per-episode spend cap, and optional
-consistency (stills/voices) on asset builds. Pending, in order:
+consistency (stills/voices) on asset builds.
+
+**Awaiting review (overnight session, branch `claude/code-review-clarify-67fft3`,
+NOT merged):** the hardening pass — generation/director timeouts, playout
+failure isolation, director backoff, hard stop, daily spend cap, disk gate,
+orphan-recording recovery, producer live readout, chat history + rate limit,
+cookie/token hygiene, a 27-test suite (`npm test`) and GitHub Actions CI. All
+validated with dry runs and a local server session; nothing player-facing in
+the HLS attach path was touched. Review, merge, then confirm the first deploy
+logs `[server] spend: $5/episode, $25/day` and `/healthz` returns `episode`.
+
+Pending, in order:
 
 1. **Mark tops up fal** (account locked: exhausted balance after an ~$80 day
    — see the spend-cap section for what happened). Until then: compiling
@@ -68,6 +79,24 @@ running ~$ estimate while live. Context: full quality ≈ $4.80/min, so the
 old default (10 min, no cap) cost ~$48 per Start — the cap exists because
 exactly that happened on 1 Sep 2026 (~$80 day). Raising it is a per-Start,
 deliberate act. Dry runs are never capped (they're free).
+
+**Every UTC day has a cap too — default $25** (`DAILY_BUDGET_USD`, Railway
+var; 0 = uncapped). Every estimated charge is appended to
+`DATA_DIR/spend/<YYYY-MM-DD>.json` as it happens, so it survives crashes and
+counts CLI episodes as well. `/start` refuses with 402 once the day is
+spent, and a paid episode's own cap is tightened to what is left; the
+producer panel shows "$N left today". Raising it means editing the Railway
+variable — deliberately.
+
+**Two ways to stop.** *Stop* is graceful (above). *Hard stop* (producer
+button / `/stop {"hard":true}` / second Ctrl-C on the CLI) abandons in-flight
+generation and cuts the stream within seconds; the partial recording is still
+finalized. Use it when a show goes wrong on air.
+
+**What the producer panel shows while live:** `~$spend · $left today`, then
+`c<cycle> · <sec> buffered · <n> generating`, and the last error (timeouts,
+director failures, disk) in red — the same snapshot `/healthz` returns under
+`episode`.
 
 | Mode | How | Cost / on-air minute |
 |---|---|---|
@@ -146,6 +175,13 @@ env" section above), size-capped by `ARCHIVE_MAX_GB`.
 `TILLY_REFERENCE_IMAGE_URLS`, `TILLY_REFERENCE_AUDIO_URL` — set in Railway
 service variables AND the Claude Code cloud environment (so fresh Claude
 sessions can run real generation). Never commit values; this repo is public.
+As of 1 Sep 2026 the Claude environment has `FAL_KEY` and the Tilly
+references but NOT `ANTHROPIC_API_KEY` — add it there if sessions should be
+able to exercise the director/compiler locally.
+
+Optional guards (all have safe defaults, see `.env.example`):
+`EPISODE_BUDGET_USD` (5), `DAILY_BUDGET_USD` (25), `ARCHIVE_MAX_GB` (2),
+`MIN_FREE_GB` (1), `GENERATION_TIMEOUT_SEC` (240), `DIRECTOR_TIMEOUT_SEC` (90).
 
 Every episode is recorded: playout tees the exact aired stream to disk and
 the runner finalizes it to `episode.mp4` (plus `log.jsonl` and the raw
@@ -153,9 +189,15 @@ generated clip mp4s) under `DATA_DIR/episodes/<timestamp>/` — on the Railway
 volume in production, so recordings survive redeploys. Producer page →
 **Episodes** lists them with watch/download/log links (`GET /episodes`,
 `GET /episodes/<id>/episode.mp4`, viewer-token gated, seekable via Range).
-The archive is capped at `ARCHIVE_MAX_GB` (default 4): oldest episodes are
-pruned after each show, so download anything precious — or raise the cap
-and grow the volume as the library builds.
+The archive is capped at `ARCHIVE_MAX_GB` (default 2, lowered from 4 because
+the volume is assumed to be 5 GB): oldest episodes are pruned BEFORE each
+show starts (so the new recording has room) and again after, and `/start`
+refuses with 507 when less than `MIN_FREE_GB` (1) is free — a recording that
+fills the volume mid-show would take ffmpeg down with it. A running show
+also ends gracefully if free space drops under the threshold. Download
+anything precious, or raise the cap and grow the volume as the library
+builds. A restart mid-episode leaves `stream.ts` behind; the server
+finalizes such orphans to `episode.mp4` at boot.
 
 ## Hard-won fixes — do not re-break
 
@@ -173,6 +215,17 @@ and grow the volume as the library builds.
    buffered; per-show fillers/cached segments cover generation gaps.
 6. **hls.js is self-hosted at `/hls.js`** — CDN-blocked viewers previously got
    a silent dead player.
+7. **Every external wait has a timeout** (`GENERATION_TIMEOUT_SEC`,
+   `DIRECTOR_TIMEOUT_SEC`). Without one, a hung fal job blocked air order
+   forever and left the server "running" until a redeploy. A timed-out cycle
+   releases as zero clips; fillers cover it; the fal work is simply ignored.
+8. **Playout failures never escape as unhandled rejections.** The pump
+   promise reports through `Playout.onError`; the runner ends the episode
+   and finalizes the recording. Before this, a remux error mid-show could
+   crash the whole platform process (Node exits on unhandled rejections).
+9. **Director errors back off** (5s → 60s) and carry the drained chat into
+   the next attempt — never a hot loop against the API, never lost
+   suggestions.
 
 ## Known limits / next moves
 
@@ -184,8 +237,6 @@ and grow the volume as the library builds.
   licence. The hosted fal API is unrestricted.
 - reference-to-video has NO cheap 480p tier — that's why test mode drops
   references.
-- Stop is graceful, not instant (see above); a hard-stop option is a possible
-  addition.
 - Generate filler libraries for `tilly-agony-aunt` and `tilly-interviews`;
   add the first non-Tilly character.
 - **fal balance is EXHAUSTED (as of 1 Sep 2026)** — the account is locked,
@@ -209,4 +260,9 @@ auto-deploys. Railway infra changes (volumes, variables) can be made from
 sessions via the Railway MCP tools.
 Verify player-facing changes in a real browser — CI-container Chromium can't
 decode H.264. Dry runs are free; use them for everything that isn't about
-picture quality.
+picture quality. `npm test` (unit + ffmpeg-backed runner integration tests,
+~75s, $0) and `npx tsc --noEmit` must pass before pushing; GitHub Actions
+(`.github/workflows/ci.yml`) runs both plus a dry-run episode on every PR.
+The integration tests in `test/integration/runner.test.ts` are the place to
+add coverage for any loop/playout change — they drive the real runner and
+real ffmpeg playout with fake chat/director/generator.

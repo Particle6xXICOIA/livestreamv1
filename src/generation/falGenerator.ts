@@ -4,7 +4,6 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ClipGenerator, RawClip, SceneRefs } from "../types.js";
-import { Config } from "../config.js";
 import { ShowConfig, hostClipPrompt } from "../shows.js";
 import { SpendMeter, USD_PER_SEC_FULL, USD_PER_SEC_TEST } from "./spend.js";
 
@@ -29,7 +28,6 @@ export class FalH3MaxGenerator implements ClipGenerator {
     falKey: string,
     private show: ShowConfig,
     fallbackRefs: { imageUrls: string[]; audioUrl: string | null },
-    private _video: Config["video"],
     /** Cheap test generation: anchors-only text-to-video at 480p. */
     private testQuality = false,
     /** When set, every generation charges its estimated cost at submit time. */
@@ -94,11 +92,7 @@ export class FalH3MaxGenerator implements ClipGenerator {
   }
 
   async generateHostClip(riff: string, workDir: string, tag: string): Promise<RawClip> {
-    // Size the clip to the line: cramming a long riff into a fixed 8s makes
-    // the model rush and garble the speech (~2.3 words/sec + breathing room).
-    const words = riff.trim().split(/\s+/).length;
-    const duration = Math.min(15, Math.max(6, Math.ceil(words / 2.3) + 2));
-    return this.generate(hostClipPrompt(this.show, riff), duration, path.join(workDir, `${tag}-host.mp4`));
+    return this.generate(hostClipPrompt(this.show, riff), hostClipDurationSec(riff), path.join(workDir, `${tag}-host.mp4`));
   }
 
   async generateSceneClip(
@@ -110,6 +104,19 @@ export class FalH3MaxGenerator implements ClipGenerator {
   ): Promise<RawClip> {
     return this.generate(prompt, durationSec, path.join(workDir, `${tag}-scene.mp4`), refs);
   }
+}
+
+/** Length of a filler ("vamping on set") clip in the show's library. */
+export const FILLER_CLIP_SEC = 8;
+
+/**
+ * Size a spoken clip to its line: cramming a long riff into a fixed 8s makes
+ * the model rush and garble the speech (~2.3 words/sec + breathing room).
+ * Clamped to the model's 5–15s range (6s floor so short lines don't feel cut).
+ */
+export function hostClipDurationSec(line: string): number {
+  const words = line.trim().split(/\s+/).filter(Boolean).length;
+  return Math.min(15, Math.max(6, Math.ceil(words / 2.3) + 2));
 }
 
 async function downloadTo(url: string, outPath: string): Promise<void> {

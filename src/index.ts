@@ -9,10 +9,13 @@ const { chat, director, generator, spend } = buildComponents(config, show);
 const runner = new EpisodeRunner(config, show, chat, director, generator, spend);
 
 process.on("SIGINT", () => {
-  console.log("\nSIGINT — ending episode…");
+  console.log("\nSIGINT — ending episode gracefully (Ctrl-C again for a hard stop)…");
   runner.requestStop();
-  // Second Ctrl-C force-quits.
-  process.on("SIGINT", () => runner.abort().then(() => process.exit(130)));
+  // Second Ctrl-C hard-stops: cut the stream now, keep the recording.
+  process.once("SIGINT", () => {
+    console.log("\nSIGINT — hard stop");
+    runner.requestHardStop();
+  });
 });
 
 runner.run().catch((err) => {
