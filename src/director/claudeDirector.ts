@@ -82,7 +82,14 @@ export class ClaudeDirector implements Director {
       throw new Error("director response failed to parse");
     }
 
+    const u = response.usage;
     return {
+      usage: {
+        inputTokens: u.input_tokens,
+        outputTokens: u.output_tokens,
+        cacheReadTokens: u.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+      },
       suggestion: parsed.pickedSuggestionId
         ? (byId.get(parsed.pickedSuggestionId) ?? null)
         : null,

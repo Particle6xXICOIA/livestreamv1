@@ -21,6 +21,16 @@ export interface CycleDecision {
   updatedState: string | null;
   /** Suggestions the director declined on safety grounds this cycle (logged, never aired). */
   declined: { username: string; text: string; reason: string }[];
+  /** Token accounting for the director call, when the implementation reports it. */
+  usage?: DirectorUsage;
+}
+
+/** Anthropic-style usage, kept so cache effectiveness is visible in the episode log. */
+export interface DirectorUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
 }
 
 export type ClipKind = "opening" | "host" | "scene" | "filler" | "closing";

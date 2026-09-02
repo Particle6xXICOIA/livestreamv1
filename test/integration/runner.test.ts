@@ -15,6 +15,7 @@ import { renderCardClip } from "../../src/generation/ffmpeg.js";
 import { SpendMeter } from "../../src/generation/spend.js";
 import { getShow } from "../../src/shows.js";
 import { ChatSource, ClipGenerator, CycleDecision, Director, RawClip, Suggestion } from "../../src/types.js";
+import { Screener } from "../../src/director/screener.js";
 
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
 const show = getShow("tilly-improv");
@@ -61,6 +62,7 @@ class FakeDirector implements Director {
       castNames: [],
       updatedState: null,
       declined: [],
+      usage: { inputTokens: 900, outputTokens: 120, cacheReadTokens: 800, cacheWriteTokens: 0 },
     };
   }
 }
@@ -232,4 +234,31 @@ test("the budget gate stops new cycles before the cap and still airs the cached 
   assert.ok(reached, "budget gate fired");
   assert.equal(log.find((e) => e.type === "episode_end")!.cycles, 1, "one cycle fit; a second worst-case cycle would cross $2.50");
   assert.equal(runner.spentUsd, 1.2);
+});
+
+test("the output screen drops a refused cycle before generation and the summary carries timing evidence", { skip: !hasFfmpeg && "ffmpeg not installed" }, async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "ep-"));
+  const config = testConfig(outDir, { maxCycles: 3 });
+  const generator = new FakeGenerator(config.video);
+  const screener: Screener = {
+    async screen(decision) {
+      return decision.scenePrompt === "scene 2" ? { ok: false, reason: "test refusal" } : { ok: true, reason: null };
+    },
+  };
+  const runner = new EpisodeRunner(config, show, new FakeChat(), new FakeDirector(), generator, new SpendMeter(0), screener);
+  await runner.run();
+
+  const log = readLog(outDir);
+  const refused = log.find((e) => e.type === "screened_out")!;
+  assert.equal(refused.cycle, 2);
+  assert.equal(refused.reason, "test refusal");
+  assert.ok(!generator.generated.some((g) => g.startsWith("cycle-002")), "nothing was generated for the refused cycle");
+  assert.deepEqual(airedLabels(log).filter((l) => l.endsWith(" scene")), ["cycle-001 scene", "cycle-003 scene"]);
+
+  const end = log.find((e) => e.type === "episode_end")! as { screenedOut?: number; timing?: { generationMs?: { n: number; p95: number } }; director?: { calls: number; cacheReadTokens: number } };
+  assert.equal(end.screenedOut, 1);
+  assert.equal(end.timing?.generationMs?.n, 2);
+  assert.ok((end.timing?.generationMs?.p95 ?? 0) > 0);
+  assert.equal(end.director?.calls, 3);
+  assert.equal(end.director?.cacheReadTokens, 2400, "cache reads are summed so caching is provable from the log");
 });

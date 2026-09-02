@@ -50,6 +50,7 @@ Requires Node 20+ and ffmpeg on PATH.
 | `DAILY_BUDGET_USD` | Estimated-spend cap per UTC day across episodes (default 25; 0 = uncapped) |
 | `ARCHIVE_MAX_GB` / `MIN_FREE_GB` | Recording archive size cap (default 2) and disk headroom required to start (default 1) |
 | `GENERATION_TIMEOUT_SEC` / `DIRECTOR_TIMEOUT_SEC` | Abandon a cycle whose generation (240) or director call (90) hangs |
+| `OUTPUT_SCREEN` | `off` disables the Haiku check on the director's riff/scene prompt before generation (default on when the Anthropic key is set) |
 
 Any component without its key runs as a stub, so the loop is testable at every
 level of fidelity. `Ctrl-C` ends an episode gracefully (closing segment, clean
@@ -86,7 +87,8 @@ show platform in one process:
   curl -X POST https://<host>/stop  -H "Authorization: Bearer $CONTROL_TOKEN"
   ```
 
-  `/start` also accepts `cycles`, `dryRun`, `budget`, and `"output": "rtmp"`
+  `/start` also accepts `cycles`, `dryRun`, `budget`, `bufferSec` (5–180,
+  default 45), `concurrency` (1–4, default 2), and `"output": "rtmp"`
   (push to `RTMP_URL` — YouTube/Twitch — instead of the built-in platform;
   pair it with `YOUTUBE_API_KEY` + `YOUTUBE_VIDEO_ID` to read that
   broadcast's chat). `/stop` is graceful; `/stop` with `{"hard": true}` cuts
